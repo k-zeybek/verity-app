@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title data-i18n="settingsTitle">Verity Settings</title>
+  <style>
+    body {
+      font-family: -apple-system, system-ui, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background-color: #f8f9fa;
+      color: #1a1a2e;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      overflow: hidden;
+    }
+    .container {
+      background: #ffffff;
+      border-radius: 12px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+      width: 400px;
+      padding: 32px;
+    }
+    h1 {
+      margin-top: 0;
+      font-size: 24px;
+      color: #1a1a2e;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .logo-icon {
+      background: #3b5998;
+      color: white;
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      font-weight: 600;
+    }
+    .form-group {
+      margin-top: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    label {
+      font-weight: 600;
+      font-size: 14px;
+    }
+    select {
+      padding: 10px;
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
+      font-size: 14px;
+      background: #fff;
+      color: #1a1a2e;
+    }
+    .actions {
+      margin-top: 32px;
+      display: flex;
+      justify-content: flex-end;
+    }
+    button {
+      background: #3b5998;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    button:hover {
+      background: #2d4373;
+    }
+    #status {
+      margin-top: 16px;
+      color: #166534;
+      font-size: 14px;
+      font-weight: 500;
+      text-align: right;
+      height: 20px;
+    }
+
+    /* Dark Theme */
+    body.dark-theme { background-color: #1e1e2f; color: #e2e8f0; }
+    body.dark-theme .container { background: #27273f; box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+    body.dark-theme h1 { color: #e2e8f0; }
+    body.dark-theme select { background: #33334d; color: #e2e8f0; border: 1px solid #4b4b6b; }
+    body.dark-theme button { background: #5d7bc2; }
+    body.dark-theme button:hover { background: #4a66a0; }
+    body.dark-theme #status { color: #4ade80; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1><div class="logo-icon">V</div> <span data-i18n="settingsTitle">Verity Settings</span></h1>
+    
+    <div class="form-group">
+      <label for="theme" data-i18n="themeLabel">Theme</label>
+      <select id="theme">
+        <option value="light" data-i18n="themeLight">Light</option>
+        <option value="dark" data-i18n="themeDark">Dark</option>
+      </select>
+    </div>
+
+    <div class="form-group">
+      <label for="uiLanguage" data-i18n="displayLanguageLabel">Display Language</label>
+      <select id="uiLanguage">
+        <option value="en">English</option>
+        <option value="es">Español (Spanish)</option>
+        <option value="fr">Français (French)</option>
+        <option value="de">Deutsch (German)</option>
+      </select>
+    </div>
+
+    <div class="form-group">
+      <label for="outputMode" data-i18n="outputLanguageLabel">Output Language</label>
+      <select id="outputMode">
+        <option value="display" data-i18n="outputModeDisplay">Same as Display Language</option>
+        <option value="article" data-i18n="outputModeArticle">Same as Article Language</option>
+      </select>
+    </div>
+
+    <div class="actions">
+      <button id="save" data-i18n="saveBtn">Save Settings</button>
+    </div>
+    <div id="status"></div>
+  </div>
+  <script src="options.js"></script>
+</body>
+</html>
