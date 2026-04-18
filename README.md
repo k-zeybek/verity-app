@@ -21,7 +21,7 @@ Verity acts as your personal intelligence analyst while you browse LinkedIn. Wit
 
 Since Verity is currently in its early release, you can install it manually in just a few seconds:
 
-1.  **Download the Release**: Download the latest `verity-extension.zip` from our [Releases page](https://github.com/k-zeybek/verity/releases) (or download the code and use the `extension` folder).
+1.  **Download the Release**: Download the latest `verity-extension.zip` from our [Releases page](https://github.com/k-zeybek/verity-app/releases) (or download the code).
 2.  **Unzip the File**: Extract the contents to a folder on your computer.
 3.  **Open Extensions Page**: In Google Chrome, go to `chrome://extensions/`.
 4.  **Enable Developer Mode**: Flip the toggle in the **top-right corner** to the "On" position.
