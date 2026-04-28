@@ -32,6 +32,15 @@ function updateAllPanels() {
       else panel.classList.remove('dark-theme');
     }
   });
+
+  const floatingHost = document.getElementById('verity-floating-panel-host');
+  if (floatingHost) {
+    const panel = floatingHost.shadowRoot?.querySelector('.verity-panel');
+    if (panel) {
+      if (userSettings.theme === 'dark') panel.classList.add('dark-theme');
+      else panel.classList.remove('dark-theme');
+    }
+  }
 }
 
 const I18N = {
@@ -155,7 +164,6 @@ function findPosts() {
   for (const sel of POST_SELECTORS) {
     const items = feed.querySelectorAll(sel);
     if (items.length > 0) {
-      // Filter out items that don't have text
       return Array.from(items).filter(item => extractPostText(item).length >= MIN_TEXT_LEN);
     }
   }
@@ -174,21 +182,19 @@ function extractPostText(post) {
   // Last-resort fallback: longest paragraph/span
   let best = "";
   post.querySelectorAll("p, span").forEach(s => {
-    const t = (s.innerText || "").trim();
-    if (t.length > best.length && t.length > MIN_TEXT_LEN) best = t;
+    const txt = (s.innerText || "").trim();
+    if (txt.length > best.length && txt.length > MIN_TEXT_LEN) best = txt;
   });
   return best;
 }
 
 function findMenuButton(post) {
-  // Try to find the three-dot SVG
   const svg = post.querySelector(OVERFLOW_SVG);
   if (svg) {
     const btn = svg.closest("button");
     if (btn) return btn;
   }
 
-  // Backup: find localized aria-labels
   const btns = post.querySelectorAll("button[aria-label]");
   for (const b of btns) {
     const label = (b.getAttribute("aria-label") || "").toLowerCase();
@@ -204,31 +210,58 @@ function findMenuButton(post) {
 }
 
 // ============================================================
-// Shadow DOM Injection
+// Floating Panel Host (mounted on document.body)
+// This single host lives outside all posts, so it is never
+// clipped by overflow:hidden or transform ancestors.
 // ============================================================
 
-function createShadowHost(id) {
-  const host = document.createElement("div");
-  host.className = "verity-widget-host";
-  host.id = id;
-  host.style.cssText = `
-  display: inline-flex;
-  align-items: center; 
-  align-self: center;
-  flex-shrink: 0; 
-  position: relative; 
-  z-index: 9999;
-  height: 100%;`;
-  return host;
+let floatingPanelHost = null;
+let floatingPanelShadow = null;
+let floatingPanel = null;
+let activeAnchor = null;       // the trigger <button> currently owning the panel
+let positionRafId = null;
+
+function ensureFloatingHost() {
+  if (floatingPanelHost) return;
+
+  floatingPanelHost = document.createElement('div');
+  floatingPanelHost.id = 'verity-floating-panel-host';
+  floatingPanelHost.style.cssText = `
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 0;
+    height: 0;
+    overflow: visible;
+    z-index: 2147483647;
+    pointer-events: none;
+  `;
+  document.body.appendChild(floatingPanelHost);
+
+  floatingPanelShadow = floatingPanelHost.attachShadow({ mode: 'open' });
+  injectFloatingStyles(floatingPanelShadow);
+
+  floatingPanel = document.createElement('div');
+  floatingPanel.className = 'verity-panel' + (userSettings.theme === 'dark' ? ' dark-theme' : '');
+  floatingPanel.style.display = 'none';
+  floatingPanel.style.pointerEvents = 'auto';
+  floatingPanelShadow.appendChild(floatingPanel);
+
+  // Close on outside click
+  document.addEventListener('click', (e) => {
+    if (!floatingPanel || floatingPanel.style.display === 'none') return;
+    const path = e.composedPath();
+    // Click is outside if it doesn't hit the panel or the active trigger
+    if (!path.includes(floatingPanel) && (!activeAnchor || !path.includes(activeAnchor))) {
+      closeFloatingPanel();
+    }
+  }, true);
 }
 
-function injectStyles(shadowRoot) {
-  const style = document.createElement("style");
+function injectFloatingStyles(shadowRoot) {
+  const style = document.createElement('style');
   style.textContent = `
     :host {
-      display: inline-flex;
-      align-items: center;
-      position: relative;
       --verity-primary: #3b82f6;
       --verity-success: #22c55e;
       --verity-danger: #ef4444;
@@ -239,10 +272,282 @@ function injectStyles(shadowRoot) {
       --verity-muted-foreground: #94a3b8;
       --verity-border: #e2e8f0;
       --verity-card: #ffffff;
-      --verity-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
+      --verity-shadow: 0 10px 30px -10px rgba(0,0,0,0.15), 0 4px 6px -4px rgba(0,0,0,0.1);
       --verity-radius: 12px;
     }
-    
+
+    .verity-panel {
+      position: fixed;
+      width: 380px;
+      background: var(--verity-card);
+      border: 1px solid var(--verity-border);
+      border-radius: var(--verity-radius);
+      box-shadow: var(--verity-shadow);
+      font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
+      font-size: 14px;
+      color: var(--verity-foreground);
+      flex-direction: column;
+      cursor: default;
+      z-index: 2147483647;
+      backdrop-filter: blur(12px);
+      animation: verity-slide-down 0.2s ease-out;
+      max-height: 80vh;
+      overflow: hidden;
+    }
+    .verity-panel.open {
+      display: flex;
+    }
+    @keyframes verity-slide-down {
+      from { opacity: 0; transform: translateY(-6px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .verity-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--verity-border);
+      background: rgba(248,250,252,0.8);
+      border-radius: var(--verity-radius) var(--verity-radius) 0 0;
+      flex-shrink: 0;
+    }
+    .verity-logo {
+      display: flex; align-items: center; gap: 8px;
+      font-weight: 700; font-size: 14px; color: var(--verity-foreground);
+    }
+    .verity-logo-icon {
+      width: 24px; height: 24px; background: var(--verity-primary); color: #fff;
+      border-radius: 6px; display: flex; align-items: center; justify-content: center;
+      font-weight: 800; font-size: 13px;
+    }
+    .verity-settings-btn, .verity-close {
+      all: initial; display: inline-flex; align-items: center; justify-content: center;
+      width: 28px; height: 28px; border-radius: 6px; cursor: pointer;
+      color: var(--verity-muted); transition: all 0.2s ease;
+    }
+    .verity-settings-btn:hover, .verity-close:hover {
+      background: var(--verity-border); color: var(--verity-foreground);
+    }
+    .verity-settings-btn svg, .verity-close svg { width: 16px; height: 16px; stroke: currentColor; }
+
+    .verity-content {
+      padding: 16px; flex: 1; overflow-y: auto;
+      overscroll-behavior: contain;
+    }
+    .verity-content::-webkit-scrollbar { width: 6px; }
+    .verity-content::-webkit-scrollbar-thumb { background: var(--verity-border); border-radius: 10px; }
+
+    .verity-loading {
+      display: flex; flex-direction: column; align-items: center; padding: 48px 0; gap: 16px;
+    }
+    .loader-circle {
+      width: 32px; height: 32px; border: 3px solid var(--verity-border);
+      border-top-color: var(--verity-primary); border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin { 100% { transform: rotate(360deg); } }
+
+    .section-title {
+      font-size: 11px; font-weight: 600; color: var(--verity-muted-foreground);
+      text-transform: uppercase; letter-spacing: 0.05em; margin: 20px 0 12px 0;
+    }
+    .section-title:first-child { margin-top: 0; }
+
+    .score-container {
+      display: flex; flex-direction: column; align-items: center; gap: 16px;
+      padding-bottom: 24px; margin-bottom: 24px; border-bottom: 1px solid var(--verity-border);
+    }
+    .verity-score-ring { width: 100px; height: 100px; position: relative; }
+    .verity-score-ring svg { width: 100%; height: 100%; transform: rotate(-90deg); overflow: visible; }
+    .verity-ring-bg { fill: none; stroke: var(--verity-border); stroke-width: 6; }
+    .verity-ring-fg {
+      fill: none; stroke: var(--score-color); stroke-width: 6; stroke-linecap: round;
+      stroke-dasharray: 251.2; transition: stroke-dashoffset 1s ease-out;
+    }
+    .verity-score-value {
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 28px; font-weight: 800; color: var(--score-color);
+      font-variant-numeric: tabular-nums;
+    }
+    .rating-badge {
+      display: flex; align-items: center; justify-content: center; gap: 6px;
+      padding: 4px 12px; border-radius: 100px; font-weight: 600; font-size: 15px;
+      border: 1px solid transparent; width: fit-content; margin: 0 auto; white-space: nowrap;
+    }
+    .rating-badge svg { width: 14px; height: 14px; }
+
+    .score-high { --score-color: var(--verity-success); }
+    .score-mid  { --score-color: var(--verity-warning); }
+    .score-low  { --score-color: var(--verity-danger); }
+
+    .rating-accurate   { background: rgba(34,197,94,0.1);  color: var(--verity-success); border-color: rgba(34,197,94,0.2); }
+    .rating-misleading { background: rgba(245,158,11,0.1); color: var(--verity-warning); border-color: rgba(245,158,11,0.2); }
+    .rating-false      { background: rgba(239,68,68,0.1);  color: var(--verity-danger);  border-color: rgba(239,68,68,0.2); }
+
+    .verity-card {
+      position: relative; padding: 16px; border-radius: var(--verity-radius);
+      border: 1px solid var(--verity-border); background: rgba(255,255,255,0.5);
+      margin-bottom: 12px; transition: all 0.2s ease;
+    }
+    .verity-card:hover { background: rgba(255,255,255,0.8); border-color: rgba(59,130,246,0.3); box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
+
+    .claim-card.verdict-true      { border-left: 6px solid var(--verity-success); }
+    .claim-card.verdict-false     { border-left: 6px solid var(--verity-danger); }
+    .claim-card.verdict-misleading{ border-left: 6px solid var(--verity-warning); }
+
+    .fallacy-card { background: rgba(245,158,11,0.05); border-color: rgba(245,158,11,0.2); }
+    .fallacy-card:hover { background: rgba(245,158,11,0.1); }
+
+    .card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; }
+    .card-title  { font-weight: 600; font-size: 14px; margin: 0; }
+    .card-label  { font-size: 11px; font-weight: 700; text-transform: uppercase; }
+    .card-meta   { font-size: 10px; color: var(--verity-muted-foreground); display: flex; align-items: center; gap: 4px; }
+    .card-meta svg { width: 12px; height: 12px; flex-shrink: 0; }
+    .card-body   { font-size: 13px; line-height: 1.5; color: var(--verity-foreground); }
+    .card-summary{ font-size: 12px; color: var(--verity-muted); margin-top: 8px; line-height: 1.4; }
+
+    .sources-list { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+    .source-tag {
+      display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 6px;
+      background: var(--verity-background); border: 1px solid var(--verity-border);
+      font-size: 11px; color: var(--verity-foreground); text-decoration: none; transition: all 0.2s ease;
+    }
+    .source-tag:hover { background: var(--verity-border); border-color: var(--verity-muted-foreground); }
+    .source-tag svg { width: 12px; height: 12px; flex-shrink: 0; color: var(--verity-muted); }
+    .source-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .dot-supports    { background: var(--verity-success); }
+    .dot-contradicts { background: var(--verity-danger); }
+
+    .verity-footer {
+      padding: 10px 16px; border-top: 1px solid var(--verity-border);
+      background: rgba(248,250,252,0.5); text-align: center;
+      font-size: 10px; color: var(--verity-muted-foreground); flex-shrink: 0;
+    }
+
+    /* Dark Theme */
+    .verity-panel.dark-theme {
+      --verity-background: #0f172a; --verity-foreground: #f1f5f9;
+      --verity-muted: #94a3b8; --verity-border: #334155;
+      --verity-card: rgba(30,41,59,0.95); --verity-shadow: 0 10px 30px -10px rgba(0,0,0,0.5);
+    }
+    .verity-panel.dark-theme .verity-header { background: rgba(15,23,42,0.8); }
+    .verity-panel.dark-theme .verity-footer { background: rgba(15,23,42,0.5); }
+    .verity-panel.dark-theme .verity-card  { background: rgba(51,65,85,0.4); }
+    .verity-panel.dark-theme .verity-card:hover { background: rgba(51,65,85,0.6); }
+    .verity-panel.dark-theme .source-tag   { background: rgba(15,23,42,0.5); }
+  `;
+  shadowRoot.appendChild(style);
+}
+
+// Position the floating panel relative to the trigger button
+function positionFloatingPanel(anchorBtn) {
+  if (!floatingPanel || !anchorBtn) return;
+
+  const rect = anchorBtn.getBoundingClientRect();
+  const panelWidth = 380;
+  const margin = 8;
+  const viewportWidth = window.innerWidth;
+  const viewportHeight = window.innerHeight;
+
+  // Prefer opening below the button
+  let top = rect.bottom + margin;
+  let left = rect.right - panelWidth;
+
+  // Clamp horizontally
+  if (left < margin) left = margin;
+  if (left + panelWidth > viewportWidth - margin) left = viewportWidth - panelWidth - margin;
+
+  // If not enough space below, open above
+  const estimatedHeight = Math.min(560, viewportHeight * 0.8);
+  if (top + estimatedHeight > viewportHeight - margin && rect.top > estimatedHeight + margin) {
+    top = rect.top - estimatedHeight - margin;
+  }
+
+  floatingPanel.style.top  = `${top}px`;
+  floatingPanel.style.left = `${left}px`;
+}
+
+function openFloatingPanel(anchorBtn, contentBuilder) {
+  ensureFloatingHost();
+
+  // If another trigger owns the panel and it's the same one – toggle off
+  if (activeAnchor === anchorBtn && floatingPanel.style.display !== 'none') {
+    closeFloatingPanel();
+    return false; // signal: closed
+  }
+
+  // Detach old anchor's "active" state
+  if (activeAnchor && activeAnchor !== anchorBtn) {
+    activeAnchor.classList.remove('active');
+  }
+
+  activeAnchor = anchorBtn;
+  anchorBtn.classList.add('active');
+
+  // Let the content builder fill the panel (header, content, footer)
+  contentBuilder(floatingPanel);
+
+  // Theme
+  if (userSettings.theme === 'dark') floatingPanel.classList.add('dark-theme');
+  else floatingPanel.classList.remove('dark-theme');
+
+  floatingPanel.style.display = 'flex';
+  floatingPanel.style.flexDirection = 'column';
+
+  positionFloatingPanel(anchorBtn);
+
+  // Keep panel anchored during scroll / resize
+  cancelAnimationFrame(positionRafId);
+  function trackPosition() {
+    if (floatingPanel.style.display === 'none') return;
+    positionFloatingPanel(anchorBtn);
+    positionRafId = requestAnimationFrame(trackPosition);
+  }
+  positionRafId = requestAnimationFrame(trackPosition);
+
+  return true; // signal: opened
+}
+
+function closeFloatingPanel() {
+  if (!floatingPanel) return;
+  cancelAnimationFrame(positionRafId);
+  floatingPanel.style.display = 'none';
+  if (activeAnchor) {
+    activeAnchor.classList.remove('active');
+    activeAnchor = null;
+  }
+}
+
+// ============================================================
+// Shadow DOM Injection (trigger button only, no panel inside)
+// ============================================================
+
+function createShadowHost(id) {
+  const host = document.createElement("div");
+  host.className = "verity-widget-host";
+  host.id = id;
+  host.style.cssText = `
+  display: inline-flex;
+  align-items: center;
+  align-self: center;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 9999;
+  height: 100%;`;
+  return host;
+}
+
+function injectTriggerStyles(shadowRoot) {
+  const style = document.createElement("style");
+  style.textContent = `
+    :host {
+      display: inline-flex;
+      align-items: center;
+      position: relative;
+      --verity-primary: #3b82f6;
+    }
     .verity-trigger {
       all: initial;
       display: inline-flex;
@@ -259,291 +564,13 @@ function injectStyles(shadowRoot) {
       transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
       color: var(--verity-primary);
     }
-    .verity-trigger:hover {
-      background: rgba(59, 130, 246, 0.1);
-    }
-    .verity-trigger.active {
-      background: rgba(59, 130, 246, 0.15);
-      color: var(--verity-primary);
-    }
-    .verity-icon, .verity-spinner {
-      width: 20px;
-      height: 20px;
-      stroke: var(--verity-primary);
-      display: block;
-    }
-    .verity-spinner {
-      display: none;
-      animation: spin 1s linear infinite;
-    }
-    .loading .verity-icon { display: none; }
+    .verity-trigger:hover { background: rgba(59,130,246,0.1); }
+    .verity-trigger.active { background: rgba(59,130,246,0.15); }
+    .verity-icon, .verity-spinner { width: 20px; height: 20px; stroke: var(--verity-primary); display: block; }
+    .verity-spinner { display: none; animation: spin 1s linear infinite; }
+    .loading .verity-icon    { display: none; }
     .loading .verity-spinner { display: block; }
     @keyframes spin { 100% { transform: rotate(360deg); } }
-
-    /* Floating Fallback */
-    :host(.floating) {
-      position: absolute !important;
-      top: 12px;
-      right: 48px;
-      z-index: 100;
-    }
-
-    /* Panel Styles */
-    .verity-panel {
-      position: absolute;
-      top: 100%;
-      right: 0;
-      width: 380px;
-      background: var(--verity-card);
-      border: 1px solid var(--verity-border);
-      border-radius: var(--verity-radius);
-      box-shadow: var(--verity-shadow);
-      font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
-      font-size: 14px;
-      color: var(--verity-foreground);
-      flex-direction: column;
-      overflow-y: auto !important;
-      cursor: default;
-      z-index: 10000;
-      backdrop-filter: blur(12px);
-      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-      animation: verity-slide-down 0.2s ease-out;
-      -webkit-overflow-scrolling: touch;
-    }
-    
-    .verity-panel.open {
-      display: flex;
-    }
-
-    .verity-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 12px 16px;
-      border-bottom: 1px solid var(--verity-border);
-      background: rgba(248, 250, 252, 0.8);
-      border-radius: var(--verity-radius) var(--verity-radius) 0 0;
-      flex-shrink: 0;
-    }
-    .verity-logo {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      font-weight: 700;
-      font-size: 14px;
-      color: var(--verity-foreground);
-    }
-    .verity-logo-icon {
-      width: 24px;
-      height: 24px;
-      background: var(--verity-primary);
-      color: #fff;
-      border-radius: 6px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-weight: 800;
-      font-size: 13px;
-    }
-    .verity-settings-btn,
-    .verity-close {
-      all: initial;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      width: 28px;
-      height: 28px;
-      border-radius: 6px;
-      cursor: pointer;
-      color: var(--verity-muted);
-      transition: all 0.2s ease;
-    }
-    .verity-settings-btn:hover,
-    .verity-close:hover {
-      background: var(--verity-border);
-      color: var(--verity-foreground);
-    }
-    .verity-settings-btn svg,
-    .verity-close svg {
-      width: 16px;
-      height: 16px;
-      stroke: currentColor;
-    }
-
-    .verity-content {
-      padding: 16px;
-      flex: 1;
-      overflow-y: auto;
-      max-height: 500px;
-      overscroll-behavior: contain;
-    }
-
-    .verity-content::-webkit-scrollbar { width: 6px; }
-    .verity-content::-webkit-scrollbar-thumb { background: var(--verity-border); border-radius: 10px; }
-    
-    .verity-loading {
-      display: flex; flex-direction: column; align-items: center; padding: 48px 0; gap: 16px;
-    }
-    .loader-circle { 
-      width: 32px; 
-      height: 32px; 
-      border: 3px solid var(--verity-border); 
-      border-top-color: var(--verity-primary); 
-      border-radius: 50%; 
-      animation: spin 1s linear infinite; 
-    }
-    
-    .section-title {
-      font-size: 11px;
-      font-weight: 600;
-      color: var(--verity-muted-foreground);
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      margin: 20px 0 12px 0;
-    }
-    .section-title:first-child { margin-top: 0; }
-
-    /* Score Section */
-    .score-container {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 16px;
-      padding-bottom: 24px;
-      margin-bottom: 24px;
-      border-bottom: 1px solid var(--verity-border);
-    }
-    
-    .verity-score-ring { width: 100px; height: 100px; position: relative; }
-    .verity-score-ring svg { width: 100%; height: 100%; transform: rotate(-90deg); overflow: visible; }
-    .verity-ring-bg { fill: none; stroke: var(--verity-border); stroke-width: 6; }
-    .verity-ring-fg { 
-      fill: none; 
-      stroke: var(--score-color); 
-      stroke-width: 6; 
-      stroke-linecap: round; 
-      stroke-dasharray: 251.2; 
-      transition: stroke-dashoffset 1s ease-out;
-    }
-    .verity-score-value {
-      position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-      display: flex; align-items: center; justify-content: center;
-      font-size: 28px; font-weight: 800; color: var(--score-color);
-      font-variant-numeric: tabular-nums;
-    }
-
-    .rating-badge {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 6px;
-      padding: 4px 12px;
-      border-radius: 100px;
-      font-weight: 600;
-      font-size: 15px;
-      border: 1px solid transparent;
-      width: fit-content;
-      margin: 0 auto;
-      white-space: nowrap;
-    }
-    .rating-badge svg {
-      width: 14px;
-      height: 14px;
-    }
-    
-    .score-high { --score-color: var(--verity-success); }
-    .score-mid { --score-color: var(--verity-warning); }
-    .score-low { --score-color: var(--verity-danger); }
-
-    .rating-accurate { background: rgba(34, 197, 94, 0.1); color: var(--verity-success); border-color: rgba(34, 197, 94, 0.2); }
-    .rating-misleading { background: rgba(245, 158, 11, 0.1); color: var(--verity-warning); border-color: rgba(245, 158, 11, 0.2); }
-    .rating-false { background: rgba(239, 68, 68, 0.1); color: var(--verity-danger); border-color: rgba(239, 68, 68, 0.2); }
-
-    /* Cards */
-    .verity-card {
-      position: relative;
-      padding: 16px;
-      border-radius: var(--verity-radius);
-      border: 1px solid var(--verity-border);
-      background: rgba(255, 255, 255, 0.5);
-      margin-bottom: 12px;
-      transition: all 0.2s ease;
-    }
-    .verity-card:hover {
-      background: rgba(255, 255, 255, 0.8);
-      border-color: rgba(59, 130, 246, 0.3);
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
-    }
-    
-    .card-icon-box {
-      width: 32px; height: 32px; border-radius: 8px;
-      display: flex; align-items: center; justify-content: center;
-      margin-bottom: 12px;
-    }
-    
-    .claim-card.verdict-true { border-left: 6px solid var(--verity-success); }
-    .claim-card.verdict-false { border-left: 6px solid var(--verity-danger); }
-    .claim-card.verdict-misleading { border-left: 6px solid var(--verity-warning); }
-    
-    .fallacy-card { 
-      background: rgba(245, 158, 11, 0.05); 
-      border-color: rgba(245, 158, 11, 0.2); 
-    }
-    .fallacy-card:hover { background: rgba(245, 158, 11, 0.1); }
-    .fallacy-card .card-icon-box { background: rgba(245, 158, 11, 0.2); color: var(--verity-warning); }
-
-    .card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; }
-    .card-title { font-weight: 600; font-size: 14px; margin: 0; }
-    .card-label { font-size: 11px; font-weight: 700; text-transform: uppercase; }
-    .card-meta { font-size: 10px; color: var(--verity-muted-foreground); display: flex; align-items: center; gap: 4px; }
-    .card-meta svg { width: 12px; height: 12px; flex-shrink: 0; }
-    
-    .card-body { font-size: 13px; line-height: 1.5; color: var(--verity-foreground); }
-    .card-summary { font-size: 12px; color: var(--verity-muted); margin-top: 8px; line-height: 1.4; }
-
-    .sources-list { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
-    .source-tag {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      padding: 4px 8px;
-      border-radius: 6px;
-      background: var(--verity-background);
-      border: 1px solid var(--verity-border);
-      font-size: 11px;
-      color: var(--verity-foreground);
-      text-decoration: none;
-      transition: all 0.2s ease;
-    }
-    .source-tag:hover { background: var(--verity-border); border-color: var(--verity-muted-foreground); }
-    .source-tag svg { width: 12px; height: 12px; flex-shrink: 0; color: var(--verity-muted); }
-    .source-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-    .dot-supports { background: var(--verity-success); }
-    .dot-contradicts { background: var(--verity-danger); }
-
-    .verity-footer {
-      padding: 10px 16px;
-      border-top: 1px solid var(--verity-border);
-      background: rgba(248, 250, 252, 0.5);
-      text-align: center;
-      font-size: 10px;
-      color: var(--verity-muted-foreground);
-    }
-
-    /* Dark Theme */
-    .verity-panel.dark-theme {
-      --verity-background: #0f172a;
-      --verity-foreground: #f1f5f9;
-      --verity-muted: #94a3b8;
-      --verity-border: #334155;
-      --verity-card: rgba(30, 41, 59, 0.95);
-      --verity-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.5);
-    }
-    .verity-panel.dark-theme .verity-header { background: rgba(15, 23, 42, 0.8); }
-    .verity-panel.dark-theme .verity-footer { background: rgba(15, 23, 42, 0.5); }
-    .verity-panel.dark-theme .verity-card { background: rgba(51, 65, 85, 0.4); }
-    .verity-panel.dark-theme .verity-card:hover { background: rgba(51, 65, 85, 0.6); }
-    .verity-panel.dark-theme .source-tag { background: rgba(15, 23, 42, 0.5); }
   `;
   shadowRoot.appendChild(style);
 }
@@ -560,8 +587,48 @@ const ICONS = {
   close: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>'
 };
 
+function buildPanelHTML(analysisState) {
+  return (panel) => {
+    panel.innerHTML = `
+      <div class="verity-header">
+        <div class="verity-logo">
+          <span class="verity-logo-icon">V</span><span>${t('verityAnalysis')}</span>
+        </div>
+        <div style="display:flex; gap:4px; align-items:center;">
+          <button class="verity-settings-btn" title="Settings">${ICONS.settings}</button>
+          <button class="verity-close">${ICONS.close}</button>
+        </div>
+      </div>
+      <div class="verity-content">
+        <div class="verity-loading" style="display:${analysisState.loading ? 'flex' : 'none'}">
+          <div class="loader-circle"></div>
+          <p style="font-weight:500; font-size:13px;">${t('analyzing')}</p>
+        </div>
+        <div class="verity-error" style="display:${analysisState.error ? 'flex' : 'none'}; color:var(--verity-danger); text-align:center; padding:24px;">${analysisState.error || ''}</div>
+        <div class="verity-results" style="display:${analysisState.data ? 'block' : 'none'}"></div>
+      </div>
+      <div class="verity-footer">
+        Powered by Verity AI • High Fidelity Fact-Checking
+      </div>
+    `;
+
+    if (analysisState.data) {
+      renderData(panel.querySelector('.verity-results'), analysisState.data);
+    }
+
+    panel.querySelector('.verity-close').addEventListener('click', closeFloatingPanel);
+    panel.querySelector('.verity-settings-btn').addEventListener('click', () => {
+      if (typeof chrome !== 'undefined' && chrome.runtime) {
+        chrome.runtime.sendMessage({ action: 'openOptionsPage' });
+      }
+    });
+    panel.addEventListener('wheel', (e) => e.stopPropagation(), { passive: true });
+  };
+}
+
 function buildUI(shadowRoot, postText) {
-  const container = document.createElement("div");
+  // Per-widget analysis state – persists even when panel is detached
+  const analysisState = { loading: false, data: null, error: null, hasAnalyzed: false };
 
   const btn = document.createElement("button");
   btn.className = "verity-trigger";
@@ -575,135 +642,68 @@ function buildUI(shadowRoot, postText) {
     </svg>
   `;
 
-  const panel = document.createElement("div");
-  panel.className = "verity-panel" + (userSettings.theme === 'dark' ? " dark-theme" : "");
-  panel.innerHTML = `
-    <div class="verity-header">
-      <div class="verity-logo">
-        <span class="verity-logo-icon">V</span><span>${t('verityAnalysis')}</span>
-      </div>
-      <div style="display:flex; gap:4px; align-items:center;">
-        <button class="verity-settings-btn" title="Settings">${ICONS.settings}</button>
-        <button class="verity-close">${ICONS.close}</button>
-      </div>
-    </div>
-    <div class="verity-content">
-      <div class="verity-loading">
-        <div class="loader-circle"></div>
-        <p style="font-weight: 500; font-size: 13px;">${t('analyzing')}</p>
-      </div>
-      <div class="verity-error" style="display:none; color:var(--verity-danger); text-align:center; padding: 24px;"></div>
-      <div class="verity-results"></div>
-    </div>
-    <div class="verity-footer">
-      Powered by Verity AI • High Fidelity Fact-Checking
-    </div>
-  `;
-  panel.addEventListener("wheel", (e) => {
-    e.stopPropagation();
-  }, { passive: true });
-
-  let hasAnalyzed = false;
-
-  btn.addEventListener("click", (e) => {
+  btn.addEventListener("click", async (e) => {
     e.preventDefault();
     e.stopPropagation();
 
-    const isOpen = panel.classList.contains("open");
-    if (isOpen) {
-      panel.style.display = "none";
-      btn.classList.remove("active");
-    } else {
-      panel.style.display = "flex";
-      panel.style.flexDirection = "column";
-      btn.classList.add("active");
+    // openFloatingPanel returns false when it closes (toggle)
+    const opened = openFloatingPanel(btn, buildPanelHTML(analysisState));
+    if (!opened) return;
 
-      if (!hasAnalyzed) {
-        hasAnalyzed = true;
-        btn.classList.add("loading");
-        doAnalysis(panel, postText).finally(() => btn.classList.remove("loading"));
+    if (!analysisState.hasAnalyzed) {
+      analysisState.hasAnalyzed = true;
+      analysisState.loading = true;
+      btn.classList.add("loading");
+
+      // Re-render panel to show loading state
+      buildPanelHTML(analysisState)(floatingPanel);
+
+      try {
+        const analysisLanguage = userSettings.outputMode === 'article' ? null : userSettings.uiLanguage;
+        const resp = await fetch(VERITY_API_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: postText, language: analysisLanguage })
+        });
+        if (!resp.ok) throw new Error(`API returned ${resp.status}`);
+        const data = await resp.json();
+        if (data.error) throw new Error(data.error);
+
+        analysisState.data = data;
+        analysisState.error = null;
+      } catch (err) {
+        warn("Analysis failed:", err);
+        analysisState.error = "Failed: " + err.message;
+        analysisState.data = null;
+      } finally {
+        analysisState.loading = false;
+        btn.classList.remove("loading");
+        // Re-render with result/error – only if this panel is still the active one
+        if (activeAnchor === btn) {
+          buildPanelHTML(analysisState)(floatingPanel);
+        }
       }
     }
   });
 
-  panel.querySelector(".verity-close").addEventListener("click", () => {
-    panel.style.display = "none";
-    btn.classList.remove("active");
-  });
-
-  panel.querySelector(".verity-settings-btn").addEventListener("click", () => {
-    if (typeof chrome !== "undefined" && chrome.runtime) {
-      chrome.runtime.sendMessage({ action: "openOptionsPage" });
-    }
-  });
-
-  // Close when clicking outside
-  document.addEventListener("click", (e) => {
-    const isClickInside = e.composedPath().includes(shadowRoot.host);
-    if (!isClickInside && panel.style.display === "flex") {
-      panel.style.display = "none";
-      btn.classList.remove("active");
-    }
-  });
-
-  container.appendChild(btn);
-  container.appendChild(panel);
-  shadowRoot.appendChild(container);
-
-  panel.style.display = "none";
+  shadowRoot.appendChild(btn);
 }
 
 // ============================================================
-// Core Analysis Logic
+// Core Render Logic
 // ============================================================
-
-async function doAnalysis(panel, text) {
-  const ld = panel.querySelector(".verity-loading");
-  const rs = panel.querySelector(".verity-results");
-  const er = panel.querySelector(".verity-error");
-
-  ld.style.display = "flex"; rs.style.display = "none"; er.style.display = "none";
-
-  try {
-    const analysisLanguage = userSettings.outputMode === 'article' ? null : userSettings.uiLanguage;
-
-    const resp = await fetch(VERITY_API_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        text,
-        language: analysisLanguage
-      })
-    });
-
-    if (!resp.ok) throw new Error(`API returned ${resp.status}`);
-    const data = await resp.json();
-    if (data.error) throw new Error(data.error);
-
-    renderData(rs, data);
-    ld.style.display = "none";
-    rs.style.display = "block";
-  } catch (err) {
-    warn("Analysis failed:", err);
-    ld.style.display = "none";
-    er.style.display = "flex";
-    er.textContent = "Failed: " + err.message;
-  }
-}
 
 function renderData(container, data) {
   const getVerdictConfig = (v) => {
-    if (v === "accurate") return { label: t('accurate'), tagClass: "rating-accurate", icon: ICONS.check };
-    if (v === "false") return { label: t('falseLabel'), tagClass: "rating-false", icon: ICONS.xCircle };
-    if (v === "misleading") return { label: t('misleading'), tagClass: "rating-misleading", icon: ICONS.alert };
-    return { label: t('unverifiable'), tagClass: "", icon: ICONS.help };
+    if (v === "accurate")    return { label: t('accurate'),      tagClass: "rating-accurate",   icon: ICONS.check };
+    if (v === "false")       return { label: t('falseLabel'),    tagClass: "rating-false",      icon: ICONS.xCircle };
+    if (v === "misleading")  return { label: t('misleading'),    tagClass: "rating-misleading", icon: ICONS.alert };
+    return                          { label: t('unverifiable'),  tagClass: "",                  icon: ICONS.help };
   };
 
   const score = data.logical_score;
-
   const scoreClass = score >= 70 ? 'score-high' : (score >= 40 ? 'score-mid' : 'score-low');
   const offset = 251.2 - (251.2 * score) / 100;
-
   const ratingCfg = getVerdictConfig(data.overall_rating);
 
   let html = `
@@ -720,19 +720,17 @@ function renderData(container, data) {
         <span>${ratingCfg.label}</span>
       </div>
     </div>
-
     <div class="section-title">${t('summary')}</div>
     <div class="card-body" style="margin-bottom: 24px;">${data.explanation || ''}</div>
   `;
 
-  // Fallacies
   if (data.fallacies && data.fallacies.length > 0) {
     html += `<div class="section-title">${t('fallacies')} (${data.fallacies.length})</div>`;
-    data.fallacies.forEach((f, i) => {
+    data.fallacies.forEach(f => {
       html += `
         <div class="verity-card fallacy-card">
           <div class="card-header">
-            <h4 class="card-title" style="text-transform: capitalize;">${f.name.replace(/_/g, ' ')}</h4>
+            <h4 class="card-title" style="text-transform:capitalize;">${f.name.replace(/_/g, ' ')}</h4>
             <span class="card-label" style="color:var(--verity-warning)">${t('fallacyLabel')}</span>
           </div>
           <div class="card-body">${f.explanation}</div>
@@ -741,7 +739,6 @@ function renderData(container, data) {
     });
   }
 
-  // Claims
   if (data.claims && data.claims.length > 0) {
     html += `<div class="section-title">${t('claims')} (${data.claims.length})</div>`;
     data.claims.forEach(c => {
@@ -750,7 +747,7 @@ function renderData(container, data) {
       if (c.sources && c.sources.length) {
         sourcesHtml = `<div class="sources-list">${c.sources.slice(0, 3).map(s => {
           let domain = "Link";
-          try { domain = new URL(s.url).hostname.replace('www.', ''); } catch (e) { }
+          try { domain = new URL(s.url).hostname.replace('www.', ''); } catch (e) {}
           return `
             <a href="${s.url}" class="source-tag" target="_blank">
               <span class="source-dot ${s.supports ? 'dot-supports' : 'dot-contradicts'}"></span>
@@ -759,7 +756,6 @@ function renderData(container, data) {
             </a>`;
         }).join("")}</div>`;
       }
-
       html += `
         <div class="verity-card claim-card verdict-${c.verdict}">
           <div class="card-header">
@@ -788,35 +784,28 @@ function renderData(container, data) {
 // ============================================================
 
 function processPost(post) {
+  // Use a stable identifier stored on the element, not derived from text length,
+  // so that "show more" / translation mutations don't invalidate the widget.
+  if (post.dataset.verityInjected === 'true') return false;
+
   const text = extractPostText(post);
   if (!text) return false;
 
-  const existingHost = post.querySelector('.verity-widget-host');
-  if (existingHost) {
-    // Check if the DOM node was recycled by React for a different post
-    if (existingHost.dataset.verityTextLen === String(text.length)) return false;
-    // Node was recycled. Remove the outdated widget
-    existingHost.remove();
-  }
-
   const menuBtn = findMenuButton(post);
-  if (!menuBtn || !menuBtn.parentElement) return false; // Checks if menu button exists, if not then not a valid post
+  if (!menuBtn || !menuBtn.parentElement) return false;
 
-  // 1. Create Shadow Host
+  // Mark the post as processed before any DOM mutation
+  post.dataset.verityInjected = 'true';
+
   const hostId = "verity-host-" + Math.random().toString(36).slice(2, 11);
   const host = createShadowHost(hostId);
-  host.dataset.verityTextLen = String(text.length);
 
-  // 2. Attach Shadow DOM
   const shadow = host.attachShadow({ mode: "open" });
-  injectStyles(shadow);
-  buildUI(shadow, text);
+  injectTriggerStyles(shadow);
+  buildUI(shadow, text); // text captured at injection time; "show more" won't re-trigger
 
-  // 3. Inject logic
   const wrapper = document.createElement("div");
-  wrapper.style.display = "flex";
-  wrapper.style.alignItems = "center";
-  wrapper.style.gap = "4px";
+  wrapper.style.cssText = "display:flex; align-items:center; gap:4px;";
 
   menuBtn.parentElement.insertBefore(wrapper, menuBtn);
   wrapper.appendChild(host);
@@ -824,7 +813,6 @@ function processPost(post) {
 
   const btnRect = menuBtn.getBoundingClientRect();
   const hostRect = host.getBoundingClientRect();
-
   const deltaY = (btnRect.top + btnRect.height / 2) - (hostRect.top + hostRect.height / 2);
   host.style.transform = `translateY(${deltaY}px)`;
 
@@ -852,19 +840,17 @@ function onDomMutation() {
 }
 
 function init() {
-  log("Initializing Shadow DOM Injector using user-provided + stable selectors");
+  log("Initializing Shadow DOM Injector");
 
-  // Try immediate injection
+  ensureFloatingHost();
   scan();
 
-  // Setup retries for slow-loading SPA
   let retries = 0;
   const iv = setInterval(() => {
     scan();
     if (++retries > 10) clearInterval(iv);
   }, 1000);
 
-  // Observer
   const observer = new MutationObserver(onDomMutation);
   observer.observe(document.body, { childList: true, subtree: true });
 }
@@ -875,7 +861,7 @@ if (document.readyState === "loading") {
   init();
 }
 
-/* 
+/*
 IMPORTANT:
 STRING FORMAT:
 ` [...] ` and ` ${variable} `
