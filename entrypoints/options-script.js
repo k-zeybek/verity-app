@@ -75,12 +75,20 @@ function saveOptions() {
   });
 }
 
-document.addEventListener('DOMContentLoaded', restoreOptions);
-document.getElementById('save').addEventListener('click', saveOptions);
+document.addEventListener('DOMContentLoaded', () => {
+  restoreOptions();
+  const saveBtn = document.getElementById('save');
+  if (saveBtn) saveBtn.addEventListener('click', saveOptions);
+});
 
 // Also listen for changes from other pages (like the widget)
-chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === 'sync') {
-    restoreOptions();
-  }
-});
+if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.onChanged) {
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === 'sync') {
+      restoreOptions();
+    }
+  });
+
+  // Provide a harmless default export for the bundler in CommonJS environments.
+  if (typeof module !== 'undefined' && module.exports) module.exports = {};
+}

@@ -1,9 +1,15 @@
+
 // ============================================================
 // Verity Chrome Extension – Content Script (Shadow DOM)
 // Injects fact-checking widgets into LinkedIn feed posts.
 // Uses Shadow DOM for style isolation and protection.
 // ============================================================
 
+export default defineContentScript({
+    matches: ["*://*.linkedin.com/*"],
+    runAt: "document_idle",
+    main() {
+    
 const VERITY_API_URL = "https://verity.backnd.workers.dev";
 
 // Settings & I18N
@@ -850,16 +856,28 @@ function init() {
     scan();
     if (++retries > 10) clearInterval(iv);
   }, 1000);
-
-  const observer = new MutationObserver(onDomMutation);
-  observer.observe(document.body, { childList: true, subtree: true });
+  if (typeof MutationObserver !== 'undefined' && document && document.body) {
+    const observer = new MutationObserver(onDomMutation);
+    observer.observe(document.body, { childList: true, subtree: true });
+  } else {
+    // Fallback: periodically scan when MutationObserver isn't available (e.g., build-time)
+    const fallbackIv = setInterval(onDomMutation, 1500);
+    setTimeout(() => clearInterval(fallbackIv), 10000);
+  }
 }
 
-if (document.readyState === "loading") {
-  document.addEventListener("DOMContentLoaded", init);
-} else {
-  init();
+if (typeof document !== 'undefined') {
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init);
+  } else {
+    init();
+  }
 }
+
+// Provide a harmless default export for the bundler in CommonJS environments.
+if (typeof module !== 'undefined' && module.exports) module.exports = {};
+
+}});
 
 /*
 IMPORTANT:

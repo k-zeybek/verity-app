@@ -1,0 +1,16 @@
+{
+  "name": "verity-app",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build": "wxt build",
+    "watch": "wxt watch",
+    "package": "wxt package",
+    "zip": "wxt zip",
+    "postinstall": "wxt prepare",
+    "dev": "wxt"
+  },
+  "devDependencies": {
+    "wxt": "^0.20.25"
+  }
+}
