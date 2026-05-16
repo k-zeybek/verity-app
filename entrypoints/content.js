@@ -288,7 +288,7 @@ function injectFloatingStyles(shadowRoot) {
     }
 
     .verity-panel {
-      position: fixed;
+      position: absolute; /* Changed from fixed to absolute */
       width: 380px;
       background: var(--verity-card);
       border: 1px solid var(--verity-border);
@@ -299,7 +299,7 @@ function injectFloatingStyles(shadowRoot) {
       color: var(--verity-foreground);
       flex-direction: column;
       cursor: default;
-      z-index: 2147483647;
+      z-index: 1; /* Capped locally inside the parent host container */
       backdrop-filter: blur(12px);
       animation: verity-slide-down 0.2s ease-out;
       max-height: 80vh;
@@ -452,7 +452,7 @@ function injectFloatingStyles(shadowRoot) {
   shadowRoot.appendChild(style);
 }
 
-// Position the floating panel relative to the trigger button
+// Position the floating panel relative to the trigger button with dynamic masking
 function positionFloatingPanel(anchorBtn) {
   if (!floatingPanel || !anchorBtn) return;
 
@@ -478,20 +478,36 @@ function positionFloatingPanel(anchorBtn) {
 
   floatingPanel.style.top  = `${top}px`;
   floatingPanel.style.left = `${left}px`;
+
+  // ── Dynamic Clip-Path Masking ──
+  // Track the exact real-time bottom coordinate of LinkedIn's top navigation bar
+  const navbar = document.querySelector('.global-nav, #global-nav, header');
+  const navBottom = navbar ? navbar.getBoundingClientRect().bottom : 52;
+
+  // Calculate how many pixels of our popup are currently encroaching on the navbar area
+  const clipTop = Math.max(0, navBottom - top);
+
+  if (clipTop > 0) {
+    // Slice off the top boundary of the popup frame-by-frame as it scrolls upward
+    floatingPanel.style.clipPath = `inset(${clipTop}px 0px 0px 0px)`;
+  } else {
+    floatingPanel.style.clipPath = 'none';
+  }
 }
 
 function openFloatingPanel(anchorBtn, contentBuilder) {
   ensureFloatingHost();
 
-  // If another trigger owns the panel and it's the same one – toggle off
+  // If clicking the currently active button – toggle it off
   if (activeAnchor === anchorBtn && floatingPanel.style.display !== 'none') {
     closeFloatingPanel();
-    return false; // signal: closed
+    return false; 
   }
 
-  // Detach old anchor's "active" state
+  // ── SINGLE PANEL ENFORCEMENT ──
+  // Hard reset and clear any other active panel state before opening a new one
   if (activeAnchor && activeAnchor !== anchorBtn) {
-    activeAnchor.classList.remove('active');
+    closeFloatingPanel();
   }
 
   activeAnchor = anchorBtn;
@@ -509,11 +525,27 @@ function openFloatingPanel(anchorBtn, contentBuilder) {
 
   positionFloatingPanel(anchorBtn);
 
-  // Keep panel anchored during scroll / resize
+// Keep panel anchored during scroll / resize & monitor viewport visibility
   cancelAnimationFrame(positionRafId);
   function trackPosition() {
-    if (floatingPanel.style.display === 'none') return;
+    if (!floatingPanel || floatingPanel.style.display === 'none' || !activeAnchor) return;
+
+    // Run positioning first to get the most accurate layout coordinates for this frame
     positionFloatingPanel(anchorBtn);
+
+    // ── AUTO-CLOSE ON SCROLL OFF-SCREEN (BY POPUP EDGE) ──
+    const panelRect = floatingPanel.getBoundingClientRect();
+    const navbar = document.querySelector('.global-nav, #global-nav, header');
+    const navBottom = navbar ? navbar.getBoundingClientRect().bottom : 52;
+    
+    // Close if the popup's bottom edge scrolls past the navbar or its top edge drops below the screen
+    const isOffScreen = panelRect.bottom < navBottom || panelRect.top > window.innerHeight;
+    
+    if (isOffScreen) {
+      closeFloatingPanel();
+      return; // Break loop execution
+    }
+
     positionRafId = requestAnimationFrame(trackPosition);
   }
   positionRafId = requestAnimationFrame(trackPosition);
@@ -637,10 +669,6 @@ function buildPanelHTML(analysisState) {
   };
 }
 
-// Drop this in place of the existing showLoginPanel function in content.js.
-// Import requestMagicLink at the top alongside getToken:
-//   import { getToken, requestMagicLink } from './auth.js';
-
 function showLoginPanel(panel, anchorBtn) {
   return new Promise((resolve) => {
     panel.innerHTML = `
@@ -732,22 +760,16 @@ function showLoginPanel(panel, anchorBtn) {
         return;
       }
 
-      // Success — tell user to check email. Panel stays open.
-      // When they click the link, /auth/callback sends the token to background.js,
-      // which stores it. The next time they click analyze it will work.
       showMsg('✓ Check your inbox — click the link to sign in. Then click Analyze again.', false);
       sendBtn.disabled = true;
       sendBtn.textContent = 'Link sent';
 
-      // Resolve false — we don't retry automatically since the token
-      // arrives asynchronously via the magic link click.
       setTimeout(() => resolve(false), 4000);
     });
   });
 }
 
 function buildUI(shadowRoot, postText) {
-  // Per-widget analysis state – persists even when panel is detached
   const analysisState = { loading: false, data: null, error: null, hasAnalyzed: false };
 
   const btn = document.createElement("button");
@@ -920,8 +942,6 @@ function renderData(container, data) {
 // ============================================================
 
 function processPost(post) {
-  // Use a stable identifier stored on the element, not derived from text length,
-  // so that "show more" / translation mutations don't invalidate the widget.
   if (post.dataset.verityInjected === 'true') return false;
 
   const text = extractPostText(post);
@@ -930,7 +950,6 @@ function processPost(post) {
   const menuBtn = findMenuButton(post);
   if (!menuBtn || !menuBtn.parentElement) return false;
 
-  // Mark the post as processed before any DOM mutation
   post.dataset.verityInjected = 'true';
 
   const hostId = "verity-host-" + Math.random().toString(36).slice(2, 11);
@@ -938,7 +957,7 @@ function processPost(post) {
 
   const shadow = host.attachShadow({ mode: "open" });
   injectTriggerStyles(shadow);
-  buildUI(shadow, text); // text captured at injection time; "show more" won't re-trigger
+  buildUI(shadow, text);
 
   const wrapper = document.createElement("div");
   wrapper.style.cssText = "display:flex; align-items:center; gap:4px;";
@@ -990,7 +1009,6 @@ function init() {
     const observer = new MutationObserver(onDomMutation);
     observer.observe(document.body, { childList: true, subtree: true });
   } else {
-    // Fallback: periodically scan when MutationObserver isn't available (e.g., build-time)
     const fallbackIv = setInterval(onDomMutation, 1500);
     setTimeout(() => clearInterval(fallbackIv), 10000);
   }
@@ -1004,7 +1022,6 @@ if (typeof document !== 'undefined') {
   }
 }
 
-// Provide a harmless default export for the bundler in CommonJS environments.
 if (typeof module !== 'undefined' && module.exports) module.exports = {};
 
 }});
