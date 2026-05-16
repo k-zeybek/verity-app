@@ -5,7 +5,7 @@ import { resolve } from 'node:path';
 const userDataDir = resolve(process.cwd(), '.wxt', 'user-data');
 
 export default defineConfig({
-  manifest: {
+  manifest: () => ({
     name: "Verity - AI Fact Checker",
     description: "AI-powered fact-checking for LinkedIn posts. Detect misinformation, logical fallacies, and verify claims with source citations.",
     permissions: ["storage"],
@@ -20,8 +20,9 @@ export default defineConfig({
       "32": "icon/32.png",
       "48": "icon/48.png",
       "128": "icon/128.png"
-    }
-  },
+    },
+    key: import.meta.env.WXT_EXTENSION_KEY,
+  }),
   runner: {
     startUrls: ['https://www.linkedin.com'],
     dataPersistence: 'project',
@@ -29,5 +30,5 @@ export default defineConfig({
     chromiumArgs: [
       `--user-data-dir=${userDataDir}`
     ],
-  },
+  }
 });

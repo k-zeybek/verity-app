@@ -1,3 +1,4 @@
+import { getToken, requestMagicLink } from './auth.js';
 
 // ============================================================
 // Verity Chrome Extension – Content Script (Shadow DOM)
@@ -632,6 +633,94 @@ function buildPanelHTML(analysisState) {
   };
 }
 
+// Drop this in place of the existing showLoginPanel function in content.js.
+// Import requestMagicLink at the top alongside getToken:
+//   import { getToken, requestMagicLink } from './auth.js';
+
+function showLoginPanel(panel, anchorBtn) {
+  return new Promise((resolve) => {
+    panel.innerHTML = `
+      <div class="verity-header">
+        <div class="verity-logo">
+          <span class="verity-logo-icon">V</span><span>${t('verityAnalysis')}</span>
+        </div>
+        <div style="display:flex; gap:4px; align-items:center;">
+          <button class="verity-close">${ICONS.close}</button>
+        </div>
+      </div>
+      <div class="verity-content">
+        <div style="display:flex; flex-direction:column; gap:12px; padding:8px 0;">
+          <p style="font-size:13px; font-weight:600; margin:0;">Sign in to Verity</p>
+          <p style="font-size:12px; color:var(--verity-muted); margin:0; line-height:1.5;">
+            Enter your email and we'll send you a magic link. Click it and you'll be signed in automatically.
+          </p>
+          <input id="v_email" type="email" placeholder="you@example.com"
+            style="padding:8px 10px; border-radius:6px; border:1px solid var(--verity-border);
+                   font-size:13px; outline:none; background:var(--verity-background);
+                   color:var(--verity-foreground);" />
+          <button id="v_send_btn"
+            style="padding:9px; border-radius:6px; background:var(--verity-primary);
+                   color:#fff; border:none; font-size:13px; font-weight:600; cursor:pointer;">
+            Send magic link
+          </button>
+          <div id="v_msg" style="font-size:12px; display:none; line-height:1.5;"></div>
+          <p style="font-size:11px; color:var(--verity-muted); margin:0; text-align:center;">
+            No account yet?
+            <a href="https://verity.dpdns.org/beta-access" target="_blank"
+               style="color:var(--verity-primary); text-decoration:none;">
+              Request beta access
+            </a>
+          </p>
+        </div>
+      </div>
+      <div class="verity-footer">Powered by Verity AI • High Fidelity Fact-Checking</div>
+    `;
+
+    const closeBtn  = panel.querySelector('.verity-close');
+    const sendBtn   = panel.querySelector('#v_send_btn');
+    const msgEl     = panel.querySelector('#v_msg');
+
+    function showMsg(text, isError = true) {
+      msgEl.style.display = text ? 'block' : 'none';
+      msgEl.style.color = isError ? 'var(--verity-danger)' : 'var(--verity-success)';
+      msgEl.textContent = text;
+    }
+
+    closeBtn?.addEventListener('click', () => resolve(false));
+
+    sendBtn?.addEventListener('click', async () => {
+      const email = panel.querySelector('#v_email').value.trim();
+      if (!email) { showMsg('Please enter your email'); return; }
+
+      sendBtn.disabled = true;
+      sendBtn.textContent = 'Sending…';
+
+      const result = await requestMagicLink(email);
+
+      if (result.error) {
+        showMsg(result.error.includes('User not found')
+          ? 'This email hasn\'t been approved yet. Request access at verity.dpdns.org.'
+          : result.error
+        );
+        sendBtn.disabled = false;
+        sendBtn.textContent = 'Send magic link';
+        return;
+      }
+
+      // Success — tell user to check email. Panel stays open.
+      // When they click the link, /auth/callback sends the token to background.js,
+      // which stores it. The next time they click analyze it will work.
+      showMsg('✓ Check your inbox — click the link to sign in. Then click Analyze again.', false);
+      sendBtn.disabled = true;
+      sendBtn.textContent = 'Link sent';
+
+      // Resolve false — we don't retry automatically since the token
+      // arrives asynchronously via the magic link click.
+      setTimeout(() => resolve(false), 4000);
+    });
+  });
+}
+
 function buildUI(shadowRoot, postText) {
   // Per-widget analysis state – persists even when panel is detached
   const analysisState = { loading: false, data: null, error: null, hasAnalyzed: false };
@@ -665,19 +754,32 @@ function buildUI(shadowRoot, postText) {
       buildPanelHTML(analysisState)(floatingPanel);
 
       try {
+      const token = await getToken();
+
         const analysisLanguage = userSettings.outputMode === 'article' ? null : userSettings.uiLanguage;
         const resp = await fetch(VERITY_API_URL, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { 
+            "Content-Type": "application/json", 
+            "Authorization": `Bearer ${token}`
+           },
           body: JSON.stringify({ text: postText, language: analysisLanguage })
         });
-        if (!resp.ok) throw new Error(`API returned ${resp.status}`);
+        if (!resp.ok) throw resp.status == 401 ? new Error('Unauthorized') : new Error(`API returned ${resp.status}`);
         const data = await resp.json();
         if (data.error) throw new Error(data.error);
 
         analysisState.data = data;
         analysisState.error = null;
       } catch (err) {
+        if (err.message === 'Unauthorized') {
+          const loggedIn = await showLoginPanel(floatingPanel, btn);
+          if (loggedIn) {
+            analysisState.hasAnalyzed = false;
+            btn.click();
+          }
+          return;
+        }
         warn("Analysis failed:", err);
         analysisState.error = "Failed: " + err.message;
         analysisState.data = null;
