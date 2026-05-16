@@ -233,6 +233,8 @@ function ensureFloatingHost() {
 
   floatingPanelHost = document.createElement('div');
   floatingPanelHost.id = 'verity-floating-panel-host';
+  
+  // Set up the standard fullscreen coordinates
   floatingPanelHost.style.cssText = `
     position: fixed;
     top: 0;
@@ -240,8 +242,11 @@ function ensureFloatingHost() {
     width: 0;
     height: 0;
     overflow: visible;
-    z-index: 2147483647;
     pointer-events: none;
+    
+    /* FIX: Force the browser to evaluate this element inside LinkedIn's compositing queue */
+    mix-blend-mode: normal; 
+    z-index: 1; 
   `;
   document.body.appendChild(floatingPanelHost);
 
@@ -258,7 +263,6 @@ function ensureFloatingHost() {
   document.addEventListener('click', (e) => {
     if (!floatingPanel || floatingPanel.style.display === 'none') return;
     const path = e.composedPath();
-    // Click is outside if it doesn't hit the panel or the active trigger
     if (!path.includes(floatingPanel) && (!activeAnchor || !path.includes(activeAnchor))) {
       closeFloatingPanel();
     }
@@ -649,6 +653,24 @@ function showLoginPanel(panel, anchorBtn) {
         </div>
       </div>
       <div class="verity-content">
+        <div style="display:flex; flex-direction:column; gap:12px; padding:8px 0; align-items: center;">
+          <p style="font-size:13px; margin:0; color: red;">Not Authorized</p>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:12px; padding:8px 0; justify-content: center;">
+          <p style="font-size:12px; color:var(--verity-muted); margin:0; line-height:1.5;">
+            Send a message to the Verity team and we'll review your case and get back as soon as possible.
+          </p>
+          <a href="https://verity.dpdns.org/support" target="_blank" style="display:contents; text-align: center; text-decoration: none;">
+            <button 
+              style="padding:9px; border-radius:6px; background:var(--verity-primary);
+              color:#fff; border:none; font-size:13px; font-weight:600; cursor:pointer;">
+              Request Assistance
+            </button>
+          </a>
+          <p style="font-size:12px; color:var(--verity-muted); margin:0; line-height:1.5;">
+            Alternatively, you can request another magic link manually or get your first if you haven't received one yet.
+          </p>
+        </div>
         <div style="display:flex; flex-direction:column; gap:12px; padding:8px 0;">
           <p style="font-size:13px; font-weight:600; margin:0;">Sign in to Verity</p>
           <p style="font-size:12px; color:var(--verity-muted); margin:0; line-height:1.5;">
@@ -686,7 +708,10 @@ function showLoginPanel(panel, anchorBtn) {
       msgEl.textContent = text;
     }
 
-    closeBtn?.addEventListener('click', () => resolve(false));
+    closeBtn?.addEventListener('click', () => {
+      closeFloatingPanel();
+      resolve(false);
+    });
 
     sendBtn?.addEventListener('click', async () => {
       const email = panel.querySelector('#v_email').value.trim();
@@ -741,7 +766,6 @@ function buildUI(shadowRoot, postText) {
     e.preventDefault();
     e.stopPropagation();
 
-    // openFloatingPanel returns false when it closes (toggle)
     const opened = openFloatingPanel(btn, buildPanelHTML(analysisState));
     if (!opened) return;
 
@@ -750,43 +774,47 @@ function buildUI(shadowRoot, postText) {
       analysisState.loading = true;
       btn.classList.add("loading");
 
-      // Re-render panel to show loading state
       buildPanelHTML(analysisState)(floatingPanel);
 
+      let showedLoginPanel = false;
+
       try {
-      const token = await getToken();
+        const token = await getToken();
 
         const analysisLanguage = userSettings.outputMode === 'article' ? null : userSettings.uiLanguage;
         const resp = await fetch(VERITY_API_URL, {
           method: "POST",
-          headers: { 
-            "Content-Type": "application/json", 
+          headers: {
+            "Content-Type": "application/json",
             "Authorization": `Bearer ${token}`
-           },
+          },
           body: JSON.stringify({ text: postText, language: analysisLanguage })
         });
-        if (!resp.ok) throw resp.status == 401 ? new Error('Unauthorized') : new Error(`API returned ${resp.status}`);
+
+        if (!resp.ok) throw resp.status === 401 ? new Error('Unauthorized') : new Error(`API returned ${resp.status}`);
         const data = await resp.json();
         if (data.error) throw new Error(data.error);
 
         analysisState.data = data;
         analysisState.error = null;
+
       } catch (err) {
         if (err.message === 'Unauthorized') {
-          const loggedIn = await showLoginPanel(floatingPanel, btn);
-          if (loggedIn) {
-            analysisState.hasAnalyzed = false;
-            btn.click();
-          }
+          showedLoginPanel = true;
+          analysisState.hasAnalyzed = false;
+          analysisState.loading = false;
+          btn.classList.remove("loading");
+          await showLoginPanel(floatingPanel, btn);
           return;
         }
+
         warn("Analysis failed:", err);
         analysisState.error = "Failed: " + err.message;
         analysisState.data = null;
+
       } finally {
         analysisState.loading = false;
         btn.classList.remove("loading");
-        // Re-render with result/error – only if this panel is still the active one
         if (activeAnchor === btn) {
           buildPanelHTML(analysisState)(floatingPanel);
         }
