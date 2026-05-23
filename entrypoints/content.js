@@ -28,6 +28,11 @@ if (typeof chrome !== 'undefined' && chrome.storage) {
       if (changes.outputMode) userSettings.outputMode = changes.outputMode.newValue;
       updateAllPanels();
     }
+    
+    if (area === 'local' && changes.supabase_session) {
+      log("Auth state change detected! Resetting UI panels.");
+      closeFloatingPanel(); 
+    }
   });
 }
 
@@ -143,18 +148,10 @@ const TEXT_SELECTORS = [
 const OVERFLOW_SVG = 'svg[id*="overflow"]';
 const MIN_TEXT_LEN = 50;
 
-// State to track if we injected
 let totalInjected = 0;
 
-// ============================================================
-// Logging Helper
-// ============================================================
 function log(...args) { console.log("[Verity]", ...args); }
 function warn(...args) { console.warn("[Verity]", ...args); }
-
-// ============================================================
-// DOM Discovery Functions
-// ============================================================
 
 function findFeed() {
   for (const sel of FEED_SELECTORS) {
@@ -186,7 +183,6 @@ function extractPostText(post) {
     }
   }
 
-  // Last-resort fallback: longest paragraph/span
   let best = "";
   post.querySelectorAll("p, span").forEach(s => {
     const txt = (s.innerText || "").trim();
@@ -216,16 +212,10 @@ function findMenuButton(post) {
   return null;
 }
 
-// ============================================================
-// Floating Panel Host (mounted on document.body)
-// This single host lives outside all posts, so it is never
-// clipped by overflow:hidden or transform ancestors.
-// ============================================================
-
 let floatingPanelHost = null;
 let floatingPanelShadow = null;
 let floatingPanel = null;
-let activeAnchor = null;       // the trigger <button> currently owning the panel
+let activeAnchor = null;
 let positionRafId = null;
 
 function ensureFloatingHost() {
@@ -234,7 +224,6 @@ function ensureFloatingHost() {
   floatingPanelHost = document.createElement('div');
   floatingPanelHost.id = 'verity-floating-panel-host';
   
-  // Set up the standard fullscreen coordinates
   floatingPanelHost.style.cssText = `
     position: fixed;
     top: 0;
@@ -243,8 +232,6 @@ function ensureFloatingHost() {
     height: 0;
     overflow: visible;
     pointer-events: none;
-    
-    /* FIX: Force the browser to evaluate this element inside LinkedIn's compositing queue */
     mix-blend-mode: normal; 
     z-index: 1; 
   `;
@@ -259,7 +246,6 @@ function ensureFloatingHost() {
   floatingPanel.style.pointerEvents = 'auto';
   floatingPanelShadow.appendChild(floatingPanel);
 
-  // Close on outside click
   document.addEventListener('click', (e) => {
     if (!floatingPanel || floatingPanel.style.display === 'none') return;
     const path = e.composedPath();
@@ -288,7 +274,7 @@ function injectFloatingStyles(shadowRoot) {
     }
 
     .verity-panel {
-      position: absolute; /* Changed from fixed to absolute */
+      position: absolute;
       width: 380px;
       background: var(--verity-card);
       border: 1px solid var(--verity-border);
@@ -299,7 +285,7 @@ function injectFloatingStyles(shadowRoot) {
       color: var(--verity-foreground);
       flex-direction: column;
       cursor: default;
-      z-index: 1; /* Capped locally inside the parent host container */
+      z-index: 1;
       backdrop-filter: blur(12px);
       animation: verity-slide-down 0.2s ease-out;
       max-height: 80vh;
@@ -452,7 +438,6 @@ function injectFloatingStyles(shadowRoot) {
   shadowRoot.appendChild(style);
 }
 
-// Position the floating panel relative to the trigger button with dynamic masking
 function positionFloatingPanel(anchorBtn) {
   if (!floatingPanel || !anchorBtn) return;
 
@@ -462,15 +447,12 @@ function positionFloatingPanel(anchorBtn) {
   const viewportWidth = window.innerWidth;
   const viewportHeight = window.innerHeight;
 
-  // Prefer opening below the button
   let top = rect.bottom + margin;
   let left = rect.right - panelWidth;
 
-  // Clamp horizontally
   if (left < margin) left = margin;
   if (left + panelWidth > viewportWidth - margin) left = viewportWidth - panelWidth - margin;
 
-  // If not enough space below, open above
   const estimatedHeight = Math.min(560, viewportHeight * 0.8);
   if (top + estimatedHeight > viewportHeight - margin && rect.top > estimatedHeight + margin) {
     top = rect.top - estimatedHeight - margin;
@@ -479,16 +461,11 @@ function positionFloatingPanel(anchorBtn) {
   floatingPanel.style.top  = `${top}px`;
   floatingPanel.style.left = `${left}px`;
 
-  // ── Dynamic Clip-Path Masking ──
-  // Track the exact real-time bottom coordinate of LinkedIn's top navigation bar
   const navbar = document.querySelector('.global-nav, #global-nav, header');
   const navBottom = navbar ? navbar.getBoundingClientRect().bottom : 52;
-
-  // Calculate how many pixels of our popup are currently encroaching on the navbar area
   const clipTop = Math.max(0, navBottom - top);
 
   if (clipTop > 0) {
-    // Slice off the top boundary of the popup frame-by-frame as it scrolls upward
     floatingPanel.style.clipPath = `inset(${clipTop}px 0px 0px 0px)`;
   } else {
     floatingPanel.style.clipPath = 'none';
@@ -498,14 +475,11 @@ function positionFloatingPanel(anchorBtn) {
 function openFloatingPanel(anchorBtn, contentBuilder) {
   ensureFloatingHost();
 
-  // If clicking the currently active button – toggle it off
   if (activeAnchor === anchorBtn && floatingPanel.style.display !== 'none') {
     closeFloatingPanel();
     return false; 
   }
 
-  // ── SINGLE PANEL ENFORCEMENT ──
-  // Hard reset and clear any other active panel state before opening a new one
   if (activeAnchor && activeAnchor !== anchorBtn) {
     closeFloatingPanel();
   }
@@ -513,10 +487,8 @@ function openFloatingPanel(anchorBtn, contentBuilder) {
   activeAnchor = anchorBtn;
   anchorBtn.classList.add('active');
 
-  // Let the content builder fill the panel (header, content, footer)
   contentBuilder(floatingPanel);
 
-  // Theme
   if (userSettings.theme === 'dark') floatingPanel.classList.add('dark-theme');
   else floatingPanel.classList.remove('dark-theme');
 
@@ -525,32 +497,28 @@ function openFloatingPanel(anchorBtn, contentBuilder) {
 
   positionFloatingPanel(anchorBtn);
 
-// Keep panel anchored during scroll / resize & monitor viewport visibility
   cancelAnimationFrame(positionRafId);
   function trackPosition() {
     if (!floatingPanel || floatingPanel.style.display === 'none' || !activeAnchor) return;
 
-    // Run positioning first to get the most accurate layout coordinates for this frame
     positionFloatingPanel(anchorBtn);
 
-    // ── AUTO-CLOSE ON SCROLL OFF-SCREEN (BY POPUP EDGE) ──
     const panelRect = floatingPanel.getBoundingClientRect();
     const navbar = document.querySelector('.global-nav, #global-nav, header');
     const navBottom = navbar ? navbar.getBoundingClientRect().bottom : 52;
     
-    // Close if the popup's bottom edge scrolls past the navbar or its top edge drops below the screen
     const isOffScreen = panelRect.bottom < navBottom || panelRect.top > window.innerHeight;
     
     if (isOffScreen) {
       closeFloatingPanel();
-      return; // Break loop execution
+      return;
     }
 
     positionRafId = requestAnimationFrame(trackPosition);
   }
   positionRafId = requestAnimationFrame(trackPosition);
 
-  return true; // signal: opened
+  return true;
 }
 
 function closeFloatingPanel() {
@@ -562,10 +530,6 @@ function closeFloatingPanel() {
     activeAnchor = null;
   }
 }
-
-// ============================================================
-// Shadow DOM Injection (trigger button only, no panel inside)
-// ============================================================
 
 function createShadowHost(id) {
   const host = document.createElement("div");
@@ -626,7 +590,7 @@ const ICONS = {
   alert: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>',
   octagon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.86 2h8.28L22 7.86v8.28L16.14 22H7.86L2 16.14V7.86L7.86 2z"></path><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>',
   help: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>',
-  settings: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>',
+  settings: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>',
   close: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>'
 };
 
@@ -763,8 +727,6 @@ function showLoginPanel(panel, anchorBtn) {
       showMsg('✓ Check your inbox — click the link to sign in. Then click Analyze again.', false);
       sendBtn.disabled = true;
       sendBtn.textContent = 'Link sent';
-
-      setTimeout(() => resolve(false), 4000);
     });
   });
 }
@@ -801,7 +763,10 @@ function buildUI(shadowRoot, postText) {
       let showedLoginPanel = false;
 
       try {
+        // ✅ Relies cleanly on auth.js to guarantee an active token or fetch a new one quietly.
         const token = await getToken();
+
+        if (!token) throw new Error('Unauthorized');
 
         const analysisLanguage = userSettings.outputMode === 'article' ? null : userSettings.uiLanguage;
         const resp = await fetch(VERITY_API_URL, {
@@ -846,10 +811,6 @@ function buildUI(shadowRoot, postText) {
 
   shadowRoot.appendChild(btn);
 }
-
-// ============================================================
-// Core Render Logic
-// ============================================================
 
 function renderData(container, data) {
   const getVerdictConfig = (v) => {
@@ -937,10 +898,6 @@ function renderData(container, data) {
   container.innerHTML = html;
 }
 
-// ============================================================
-// Orchestration
-// ============================================================
-
 function processPost(post) {
   if (post.dataset.verityInjected === 'true') return false;
 
@@ -984,10 +941,6 @@ function scan() {
   if (count > 0) log(`Scanned ${posts.length} feed elements. Injected ${count} new widgets.`);
 }
 
-// ============================================================
-// Initialization & Observers
-// ============================================================
-
 let debounceTimer = null;
 function onDomMutation() {
   clearTimeout(debounceTimer);
@@ -1026,9 +979,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = {};
 
 }});
 
-/*
-IMPORTANT:
-STRING FORMAT:
-` [...] ` and ` ${variable} `
-STOP PUTTING BACKSLASHES IN FRONT OF DOLLAR SIGNS AND BACKTICKS
-*/
+// logo needs to be in popup
+// settings button is wrong svg
+// popup location bugs
+// sending post to API without verification (i dont really know how that happened, but it was way quicker. might be false alarm)

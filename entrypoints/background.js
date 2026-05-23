@@ -1,22 +1,35 @@
 export default defineBackground(() => {
-  chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-    if (request.action === "openOptionsPage") {
-      chrome.runtime.openOptionsPage();
-    }
-  });
-
-  // New: receive the Supabase access_token from your site's /auth/callback page.
-  // Your site must be listed under "externally_connectable" > "matches" in manifest.json.
+  // A single, unified listener prevents Chrome from dropping external messages
   chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => {
-    if (message.type !== 'VERITY_AUTH_TOKEN' || !message.accessToken) {
-      sendResponse({ success: false, error: 'Invalid message' });
+    log("Received external message:", message);
+
+    // Route A: Handle Options Page
+    if (message.action === "openOptionsPage") {
+      chrome.runtime.openOptionsPage();
+      sendResponse({ success: true });
       return;
     }
 
-    chrome.storage.local.set({ token: message.accessToken }, () => {
-      sendResponse({ success: true });
-    });
+    // Route B: Handle Supabase Authentication Session
+    if (message.type === 'VERITY_AUTH_TOKEN') {
+      if (!message.session) {
+        sendResponse({ success: false, error: 'Missing session payload' });
+        return;
+      }
 
-    return true; // keep channel open for async response
+      // Save the complete session object permanently
+      chrome.storage.local.set({ supabase_session: message.session }, () => {
+        log("Successfully saved session to local storage!");
+        sendResponse({ success: true });
+      });
+      
+      return true; // REQUIRED: Tells Chrome to keep the tunnel open for the async storage write
+    }
+
+    // Fallback for unhandled messages
+    sendResponse({ success: false, error: 'Unrecognized message type' });
   });
 });
+
+// Simple internal logger helper for background debugging
+function log(...args) { console.log("[Verity Background]", ...args); }
