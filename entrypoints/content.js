@@ -28,6 +28,11 @@ if (typeof chrome !== 'undefined' && chrome.storage) {
       if (changes.outputMode) userSettings.outputMode = changes.outputMode.newValue;
       updateAllPanels();
     }
+    
+    if (area === 'local' && changes.supabase_session) {
+      log("Auth state change detected! Resetting UI panels.");
+      closeFloatingPanel(); 
+    }
   });
 }
 
@@ -973,3 +978,8 @@ if (typeof document !== 'undefined') {
 if (typeof module !== 'undefined' && module.exports) module.exports = {};
 
 }});
+
+// logo needs to be in popup
+// settings button is wrong svg
+// popup location bugs
+// sending post to API without verification (i dont really know how that happened, but it was way quicker. might be false alarm)
