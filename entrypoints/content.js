@@ -763,8 +763,6 @@ function showLoginPanel(panel, anchorBtn) {
       showMsg('✓ Check your inbox — click the link to sign in. Then click Analyze again.', false);
       sendBtn.disabled = true;
       sendBtn.textContent = 'Link sent';
-
-      setTimeout(() => resolve(false), 4000);
     });
   });
 }

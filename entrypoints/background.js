@@ -1,11 +1,11 @@
 export default defineBackground(() => {
-  chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  chrome.runtime.onMessageExternal.addListener((request, sender, sendResponse) => {
     if (request.action === "openOptionsPage") {
       chrome.runtime.openOptionsPage();
     }
   });
 
-  // New: receive the Supabase access_token from your site's /auth/callback page.
+  // New: receive the Supabase access_token from your site's /auth/confirm page.
   // Your site must be listed under "externally_connectable" > "matches" in manifest.json.
   chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => {
     if (message.type !== 'VERITY_AUTH_TOKEN' || !message.accessToken) {

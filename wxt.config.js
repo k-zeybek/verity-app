@@ -22,6 +22,10 @@ export default defineConfig({
       "128": "icon/128.png"
     },
     key: import.meta.env.WXT_EXTENSION_KEY,
+    externally_connectable: {
+      matches: ["https://verity.dpdns.org/*", "https://verity-site.backnd.workers.dev/*"]
+      
+    }
   }),
   runner: {
     startUrls: ['https://www.linkedin.com'],
