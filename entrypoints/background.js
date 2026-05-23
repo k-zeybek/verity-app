@@ -5,18 +5,18 @@ export default defineBackground(() => {
     }
   });
 
-  // New: receive the Supabase access_token from your site's /auth/confirm page.
-  // Your site must be listed under "externally_connectable" > "matches" in manifest.json.
+  // Receives the full Supabase session from auth/confirm
   chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => {
-    if (message.type !== 'VERITY_AUTH_TOKEN' || !message.accessToken) {
-      sendResponse({ success: false, error: 'Invalid message' });
+    if (message.type !== 'VERITY_AUTH_TOKEN' || !message.session) {
+      sendResponse({ success: false, error: 'Invalid payload. Expected a session object.' });
       return;
     }
 
-    chrome.storage.local.set({ token: message.accessToken }, () => {
+    // Save the entire session (access token + refresh token + expiry)
+    chrome.storage.local.set({ supabase_session: message.session }, () => {
       sendResponse({ success: true });
     });
 
-    return true; // keep channel open for async response
+    return true; 
   });
 });
