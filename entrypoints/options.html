@@ -13,7 +13,6 @@
       display: flex;
       justify-content: center;
       align-items: center;
-      height: 100vh;
       overflow: hidden;
     }
     .container {
@@ -31,17 +30,10 @@
       align-items: center;
       gap: 12px;
     }
-    .logo-icon {
-      background: #3b5998;
-      color: white;
-      width: 32px;
-      height: 32px;
-      border-radius: 8px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 16px;
-      font-weight: 600;
+    .verity-logo-icon {
+      width: 48px; height: 48px; 
+      object-fit: contain;
+      border-radius: 6px;
     }
     .form-group {
       margin-top: 24px;
@@ -101,7 +93,7 @@
 </head>
 <body>
   <div class="container">
-    <h1><div class="logo-icon">V</div> <span data-i18n="settingsTitle">Verity Settings</span></h1>
+    <h1><img src="/logo.png" class="verity-logo-icon"><span data-i18n="settingsTitle">Verity Settings</span></h1>
     
     <div class="form-group">
       <label for="theme" data-i18n="themeLabel">Theme</label>

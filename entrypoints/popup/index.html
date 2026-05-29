@@ -76,6 +76,11 @@
       background: #22c55e;
       border-radius: 50%;
     }
+    .verity-logo-icon {
+      width: 24px; height: 24px; 
+      object-fit: contain;
+      border-radius: 6px;
+    }
 
     /* Dark Theme */
     body.dark-theme { background: #1e1e2f; color: #e2e8f0; }
@@ -88,7 +93,7 @@
 </head>
 <body>
   <div class="header">
-    <div class="logo"><div class="logo-icon">V</div> Verity</div>
+    <div class="logo"><img src="logo.png" class="verity-logo-icon"/> Verity</div>
     <button id="settingsBtn" class="settings-btn" title="Settings" data-i18n-title="settingsTitleAttr">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <circle cx="12" cy="12" r="3"></circle>
@@ -105,6 +110,10 @@
   <div id="authArea" style="margin-top:12px;">
     <p>Register for Beta Access if you haven't already:</p>
     <a href="https://verity.dpdns.org/beta-access" target="_blank" style="color:#3b5998; text-decoration:none; font-weight:500;">https://verity.dpdns.org/beta-access</a>
+    <br><br>
+    <div style="display:flex; justify-content: space-between;">
+      <a href="https://verity.dpdns.org/auth/magic-link" target="_blank" style="color:#3b5998; text-decoration:none; font-weight:500;">Request Magic Link</a> <a href="https://verity.dpdns.org/support" target="_blank" style="color:#3b5998; text-decoration:none; font-weight:500;">Support</a>
+    </div>
   </div>
   <script src="popup.js"></script>
 </body>

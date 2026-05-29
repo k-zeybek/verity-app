@@ -1,16 +1,19 @@
 export default defineBackground(() => {
-  // A single, unified listener prevents Chrome from dropping external messages
+
+  // 1. Handle INTERNAL messages
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    log("Received internal message:", message);
+    
+    if (message?.action === "openOptionsPage") {
+      chrome.runtime.openOptionsPage();
+      sendResponse({ success: true });
+    }
+  });
+
+  // 2. Handle EXTERNAL messages
   chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => {
     log("Received external message:", message);
 
-    // Route A: Handle Options Page
-    if (message.action === "openOptionsPage") {
-      chrome.runtime.openOptionsPage();
-      sendResponse({ success: true });
-      return;
-    }
-
-    // Route B: Handle Supabase Authentication Session
     if (message.type === 'VERITY_AUTH_TOKEN') {
       if (!message.session) {
         sendResponse({ success: false, error: 'Missing session payload' });

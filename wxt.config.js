@@ -1,7 +1,6 @@
 import { defineConfig } from 'wxt';
 import { resolve } from 'node:path';
 
-// store browser profile (cookies, localStorage, session data) here
 const userDataDir = resolve(process.cwd(), '.wxt', 'user-data');
 
 export default defineConfig({
@@ -13,8 +12,10 @@ export default defineConfig({
       "*://*.linkedin.com/*",
       "https://verity.backnd.workers.dev/*"
     ],
-    // Icons in 'public/icon/' werden oft automatisch erkannt, 
-    // aber hier ist die explizite Definition:
+    web_accessible_resources: [{
+      resources: ['logo.png'],
+      matches: ['*://*.linkedin.com/*']
+    }],
     icons: {
       "16": "icon/16.png",
       "32": "icon/32.png",
@@ -25,6 +26,10 @@ export default defineConfig({
     externally_connectable: {
       matches: ["https://verity.dpdns.org/*", "https://verity-site.backnd.workers.dev/*"]
       
+    },
+    options_ui: {
+      page: 'options.html',
+      open_in_tab: true
     }
   }),
   runner: {

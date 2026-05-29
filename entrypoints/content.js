@@ -30,8 +30,32 @@ if (typeof chrome !== 'undefined' && chrome.storage) {
     }
     
     if (area === 'local' && changes.supabase_session) {
-      log("Auth state change detected! Resetting UI panels.");
-      closeFloatingPanel(); 
+      const newSession = changes.supabase_session.newValue;
+      
+      // Check if the popup is currently displaying the login screen
+      const isShowingLoginScreen = floatingPanel && floatingPanel.querySelector('#v_email');
+
+      // 1. FRESH LOGIN: The login screen is open, and a valid session just arrived
+      if (isShowingLoginScreen && newSession) {
+        log("Magic link login detected. Automatically closing popup.");
+        closeFloatingPanel();
+      } 
+      
+      // 2. EXPLICIT LOGOUT / CACHE CLEAR: The session vanished while they were viewing results
+      else if (!newSession && !isShowingLoginScreen) {
+        // We add a 200ms delay to double-check if the session stays null.
+        // This perfectly filters out the split-second 'null' during background token refreshes.
+        setTimeout(() => {
+          chrome.storage.local.get(['supabase_session'], (res) => {
+            if (!res.supabase_session) {
+              log("Session definitively cleared (logout/cache wipe). Closing popup.");
+              closeFloatingPanel();
+            } else {
+              log("Transient token refresh ignored. Keeping popup open.");
+            }
+          });
+        }, 200);
+      }
     }
   });
 }
@@ -66,9 +90,10 @@ const I18N = {
     fallacies: "Logical Fallacies",
     summary: "Evaluation Summary",
     verityAnalysis: "Verity Analysis",
-    accurate: "Verified True",
+    accurate: "Accurate", 
     misleading: "Misleading",
-    falseLabel: "False",
+    unsupportedLabel: "Unsupported",
+    falseLabel: "False",        
     unverifiable: "Unverifiable",
     fallacyLabel: "Fallacy"
   },
@@ -84,6 +109,7 @@ const I18N = {
     verityAnalysis: "Análisis Verity",
     accurate: "Verificado",
     misleading: "Engañoso",
+    unsupportedLabel: "No respaldado",
     falseLabel: "Falso",
     unverifiable: "No verificable",
     fallacyLabel: "Falacia"
@@ -100,6 +126,7 @@ const I18N = {
     verityAnalysis: "Analyse Verity",
     accurate: "Vérifié",
     misleading: "Trompeur",
+    unsupportedLabel: "Non étayé",
     falseLabel: "Faux",
     unverifiable: "Invérifiable",
     fallacyLabel: "Sophisme"
@@ -116,6 +143,7 @@ const I18N = {
     verityAnalysis: "Verity-Analyse",
     accurate: "Verifiziert",
     misleading: "Irreführend",
+    unsupportedLabel: "Nicht unterstützt",
     falseLabel: "Falsch",
     unverifiable: "Nicht verifizierbar",
     fallacyLabel: "Fehlschluss"
@@ -127,7 +155,6 @@ function t(key) {
   return I18N[lang] && I18N[lang][key] ? I18N[lang][key] : I18N['en'][key];
 }
 
-// ── Selectors (Combines User-provided and Stable Fallbacks) ──────
 const FEED_SELECTORS = [
   'main.scaffold-layout__main',
   '[data-testid="mainFeed"]',
@@ -309,14 +336,10 @@ function injectFloatingStyles(shadowRoot) {
       border-radius: var(--verity-radius) var(--verity-radius) 0 0;
       flex-shrink: 0;
     }
-    .verity-logo {
-      display: flex; align-items: center; gap: 8px;
-      font-weight: 700; font-size: 14px; color: var(--verity-foreground);
-    }
     .verity-logo-icon {
-      width: 24px; height: 24px; background: var(--verity-primary); color: #fff;
-      border-radius: 6px; display: flex; align-items: center; justify-content: center;
-      font-weight: 800; font-size: 13px;
+      width: 24px; height: 24px; 
+      object-fit: contain;
+      border-radius: 6px;
     }
     .verity-settings-btn, .verity-close {
       all: initial; display: inline-flex; align-items: center; justify-content: center;
@@ -445,22 +468,18 @@ function positionFloatingPanel(anchorBtn) {
   const panelWidth = 380;
   const margin = 8;
   const viewportWidth = window.innerWidth;
-  const viewportHeight = window.innerHeight;
 
+  // STRICT RULE: Only place directly below the anchor icon.
   let top = rect.bottom + margin;
   let left = rect.right - panelWidth;
 
   if (left < margin) left = margin;
   if (left + panelWidth > viewportWidth - margin) left = viewportWidth - panelWidth - margin;
 
-  const estimatedHeight = Math.min(560, viewportHeight * 0.8);
-  if (top + estimatedHeight > viewportHeight - margin && rect.top > estimatedHeight + margin) {
-    top = rect.top - estimatedHeight - margin;
-  }
-
   floatingPanel.style.top  = `${top}px`;
   floatingPanel.style.left = `${left}px`;
-
+  
+  // Restored navbar clipping logic
   const navbar = document.querySelector('.global-nav, #global-nav, header');
   const navBottom = navbar ? navbar.getBoundingClientRect().bottom : 52;
   const clipTop = Math.max(0, navBottom - top);
@@ -498,16 +517,19 @@ function openFloatingPanel(anchorBtn, contentBuilder) {
   positionFloatingPanel(anchorBtn);
 
   cancelAnimationFrame(positionRafId);
+  
   function trackPosition() {
     if (!floatingPanel || floatingPanel.style.display === 'none' || !activeAnchor) return;
 
-    positionFloatingPanel(anchorBtn);
+    positionFloatingPanel(activeAnchor);
 
     const panelRect = floatingPanel.getBoundingClientRect();
-    const navbar = document.querySelector('.global-nav, #global-nav, header');
-    const navBottom = navbar ? navbar.getBoundingClientRect().bottom : 52;
+    const anchorRect = activeAnchor.getBoundingClientRect();
     
-    const isOffScreen = panelRect.bottom < navBottom || panelRect.top > window.innerHeight;
+    // DIRECTIONAL BOUNDS RULE:
+    // Scrolling Down: Only closes when the bottom edge of the popup completely exits the top of viewport.
+    // Scrolling Up: Closes when the top edge of the icon completely exits the bottom of viewport.
+    const isOffScreen = panelRect.bottom < 0 || anchorRect.top > window.innerHeight;
     
     if (isOffScreen) {
       closeFloatingPanel();
@@ -590,16 +612,19 @@ const ICONS = {
   alert: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>',
   octagon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.86 2h8.28L22 7.86v8.28L16.14 22H7.86L2 16.14V7.86L7.86 2z"></path><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>',
   help: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>',
-  settings: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>',
+  settings: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>',
   close: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>'
 };
 
 function buildPanelHTML(analysisState) {
   return (panel) => {
+    const logoUrl = typeof chrome !== 'undefined' && chrome.runtime ? chrome.runtime.getURL('/logo.png') : '';
+    
     panel.innerHTML = `
       <div class="verity-header">
         <div class="verity-logo">
-          <span class="verity-logo-icon">V</span><span>${t('verityAnalysis')}</span>
+          <img src="${logoUrl}" class="verity-logo-icon" />
+          <span>${t('verityAnalysis')}</span>
         </div>
         <div style="display:flex; gap:4px; align-items:center;">
           <button class="verity-settings-btn" title="Settings">${ICONS.settings}</button>
@@ -635,10 +660,13 @@ function buildPanelHTML(analysisState) {
 
 function showLoginPanel(panel, anchorBtn) {
   return new Promise((resolve) => {
+    const logoUrl = typeof chrome !== 'undefined' && chrome.runtime ? chrome.runtime.getURL('/logo.png') : '';
+    
     panel.innerHTML = `
       <div class="verity-header">
         <div class="verity-logo">
-          <span class="verity-logo-icon">V</span><span>${t('verityAnalysis')}</span>
+          <img src="${logoUrl}" alt="V" class="verity-logo-icon" />
+          <span>${t('verityAnalysis')}</span>
         </div>
         <div style="display:flex; gap:4px; align-items:center;">
           <button class="verity-close">${ICONS.close}</button>
@@ -763,7 +791,6 @@ function buildUI(shadowRoot, postText) {
       let showedLoginPanel = false;
 
       try {
-        // ✅ Relies cleanly on auth.js to guarantee an active token or fetch a new one quietly.
         const token = await getToken();
 
         if (!token) throw new Error('Unauthorized');
@@ -814,10 +841,11 @@ function buildUI(shadowRoot, postText) {
 
 function renderData(container, data) {
   const getVerdictConfig = (v) => {
-    if (v === "accurate")    return { label: t('accurate'),      tagClass: "rating-accurate",   icon: ICONS.check };
-    if (v === "false")       return { label: t('falseLabel'),    tagClass: "rating-false",      icon: ICONS.xCircle };
-    if (v === "misleading")  return { label: t('misleading'),    tagClass: "rating-misleading", icon: ICONS.alert };
-    return                          { label: t('unverifiable'),  tagClass: "",                  icon: ICONS.help };
+    if (v === "accurate")    return { label: t('accurate'),         tagClass: "rating-accurate",   icon: ICONS.check };
+    if (v === "false")       return { label: t('falseLabel'),       tagClass: "rating-false",      icon: ICONS.xCircle };
+    if (v === "unsupported") return { label: t('unsupportedLabel'), tagClass: "rating-false",      icon: ICONS.xCircle };
+    if (v === "misleading")  return { label: t('misleading'),       tagClass: "rating-misleading", icon: ICONS.alert };
+    return                          { label: t('unverifiable'),     tagClass: "",                  icon: ICONS.help };
   };
 
   const score = data.logical_score;
@@ -978,8 +1006,3 @@ if (typeof document !== 'undefined') {
 if (typeof module !== 'undefined' && module.exports) module.exports = {};
 
 }});
-
-// logo needs to be in popup
-// settings button is wrong svg
-// popup location bugs
-// sending post to API without verification (i dont really know how that happened, but it was way quicker. might be false alarm)
