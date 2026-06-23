@@ -32,7 +32,7 @@ export default defineConfig({
       open_in_tab: true
     }
   }),
-  runner: {
+  webExt: {
     startUrls: ['https://www.linkedin.com'],
     dataPersistence: 'project',
     userDataDir,

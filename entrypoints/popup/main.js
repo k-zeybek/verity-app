@@ -5,7 +5,11 @@ const I18N = {
   de: { popupDesc: "Faktenprüfung von LinkedIn-Beiträgen mit KI. Klicken Sie auf die Verity-Schaltfläche neben einem Beitrag, um die Behauptungen zu analysieren.", popupActive: "Aktiv", settingsTitleAttr: "Einstellungen" }
 };
 
-document.addEventListener('DOMContentLoaded', () => {
+// 1. Put all your startup code inside a single init function
+function initExtensionUI() {
+  console.log("Initializing UI...");
+
+  // Handle Themes and Translations
   chrome.storage.sync.get({ theme: 'light', uiLanguage: 'en' }, (items) => {
     if (items.theme === 'dark') document.body.classList.add('dark-theme');
     
@@ -19,12 +23,25 @@ document.addEventListener('DOMContentLoaded', () => {
       if (dict[key]) el.title = dict[key];
     });
   });
-});
 
-document.getElementById('settingsBtn').addEventListener('click', () => {
-  if (chrome.runtime.openOptionsPage) {
-    chrome.runtime.openOptionsPage();
-  } else {
-    window.open(chrome.runtime.getURL('options.html'));
+  // Handle Settings Button Click
+  const settingsBtn = document.getElementById('settingsBtn');
+  if (settingsBtn) {
+    settingsBtn.addEventListener('click', () => {
+      if (typeof chrome !== 'undefined' && chrome.runtime?.openOptionsPage) {
+        chrome.runtime.openOptionsPage();
+      }
+    });
   }
-});
+}
+
+// 2. Run the safe-guard check
+if (typeof document !== 'undefined') {
+  if (document.readyState === "loading") {
+    // Document is still parsing, wait for the event
+    document.addEventListener("DOMContentLoaded", initExtensionUI);
+  } else {
+    // Document is already parsed/ready, run right now!
+    initExtensionUI();
+  }
+}

@@ -11,6 +11,6 @@
     "dev": "wxt"
   },
   "devDependencies": {
-    "wxt": "^0.20.25"
+    "wxt": "^0.20.26"
   }
 }

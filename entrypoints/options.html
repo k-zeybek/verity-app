@@ -121,11 +121,19 @@
       </select>
     </div>
 
+    <div class="form-group">
+      <label for="logging" data-i18n="loggingLabel">Local Logging</label>
+      <select id="logging">
+        <option value="enabled" data-i18n="loggingEnabled">Enabled</option>
+        <option value="disabled" data-i18n="loggingDisabled">Disabled</option>
+      </select>
+    </div>
+
     <div class="actions">
       <button id="save" data-i18n="saveBtn">Save Settings</button>
     </div>
     <div id="status"></div>
   </div>
-  <script src="options-script.js"></script>
+  <script src="options-script.js" type="module"></script>
 </body>
 </html>

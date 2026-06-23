@@ -14,37 +14,34 @@ export default defineContentScript({
 const VERITY_API_URL = "https://verity.backnd.workers.dev";
 
 // Settings & I18N
-let userSettings = { theme: 'light', uiLanguage: 'en', outputMode: 'display' };
+let userSettings = { theme: 'light', uiLanguage: 'en', outputMode: 'display', logging: 'disabled' };
 if (typeof chrome !== 'undefined' && chrome.storage) {
-  chrome.storage.sync.get(['theme', 'uiLanguage', 'outputMode'], (res) => {
+  chrome.storage.sync.get(['theme', 'uiLanguage', 'outputMode', 'logging'], (res) => {
     if (res.theme) userSettings.theme = res.theme;
     if (res.uiLanguage) userSettings.uiLanguage = res.uiLanguage;
     if (res.outputMode) userSettings.outputMode = res.outputMode;
+    if (res.logging) userSettings.logging = res.logging;
   });
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area === 'sync') {
       if (changes.theme) userSettings.theme = changes.theme.newValue;
       if (changes.uiLanguage) userSettings.uiLanguage = changes.uiLanguage.newValue;
       if (changes.outputMode) userSettings.outputMode = changes.outputMode.newValue;
+      if (changes.logging) userSettings.logging = changes.logging.newValue;
       updateAllPanels();
     }
     
     if (area === 'local' && changes.supabase_session) {
       const newSession = changes.supabase_session.newValue;
       
-      // Check if the popup is currently displaying the login screen
       const isShowingLoginScreen = floatingPanel && floatingPanel.querySelector('#v_email');
 
-      // 1. FRESH LOGIN: The login screen is open, and a valid session just arrived
       if (isShowingLoginScreen && newSession) {
         log("Magic link login detected. Automatically closing popup.");
         closeFloatingPanel();
       } 
       
-      // 2. EXPLICIT LOGOUT / CACHE CLEAR: The session vanished while they were viewing results
       else if (!newSession && !isShowingLoginScreen) {
-        // We add a 200ms delay to double-check if the session stays null.
-        // This perfectly filters out the split-second 'null' during background token refreshes.
         setTimeout(() => {
           chrome.storage.local.get(['supabase_session'], (res) => {
             if (!res.supabase_session) {
@@ -179,6 +176,48 @@ let totalInjected = 0;
 
 function log(...args) { console.log("[Verity]", ...args); }
 function warn(...args) { console.warn("[Verity]", ...args); }
+
+function recordLocalDiagnostics(latencyMs, status, responseData, rawText) {
+  if (typeof chrome === 'undefined' || !chrome.storage || !chrome.storage.local) {
+    warn("Chrome local storage unavailable for diagnostics.");
+    return;
+  }
+
+  const logEntry = {
+    timestamp: new Date().toISOString(),
+    url: VERITY_API_URL,
+    status: status,
+    latencyMs: latencyMs,
+    payloadSummary: {
+      charCount: rawText.length,
+      logicalScore: responseData.logical_score,
+      overallRating: responseData.overall_rating,
+      claimsCount: responseData.claims?.length || 0,
+      fallaciesCount: responseData.fallacies?.length || 0,
+      content: {
+        post: rawText,
+        analysis: {
+          claims: responseData.claims,
+          fallacies: responseData.fallacies,
+          summary: responseData.summary,
+          overallRating: responseData.overall_rating,
+          logicalScore: responseData.logical_score
+        }
+      }
+    }
+  };
+
+  chrome.storage.local.get(['verity_diagnostics'], (result) => {
+    const logs = result.verity_diagnostics || [];
+    logs.push(logEntry);
+
+    //if (logs.length > 200) logs.shift();
+
+    chrome.storage.local.set({ verity_diagnostics: logs }, () => {
+      log(`Diagnostic saved locally. Latency: ${latencyMs}ms`);
+    });
+  });
+}
 
 function findFeed() {
   for (const sel of FEED_SELECTORS) {
@@ -336,10 +375,42 @@ function injectFloatingStyles(shadowRoot) {
       border-radius: var(--verity-radius) var(--verity-radius) 0 0;
       flex-shrink: 0;
     }
-    .verity-logo-icon {
-      width: 24px; height: 24px; 
+    .verity-logo {
+      width: 28px;
+      height: 28px; 
       object-fit: contain;
       border-radius: 6px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .verity-retry-wrapper {
+      display: flex;
+      justify-content: center;
+      padding-bottom: 24px;
+    }
+
+    /* Reusable button class */
+    .verity-btn {
+      padding: 9px 16px; 
+      border-radius: 6px;
+      background: var(--verity-primary);
+      color: #fff;
+      border: none;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      width: max-content; 
+      display: inline-block;
+      transition: opacity 0.2s ease;
+      display: block;
+      width: max-content;
+      align-self: center;
+      margin: 0 auto;
+    }
+
+    .verity-btn:hover {
+      opacity: 0.9;
     }
     .verity-settings-btn, .verity-close {
       all: initial; display: inline-flex; align-items: center; justify-content: center;
@@ -527,8 +598,6 @@ function openFloatingPanel(anchorBtn, contentBuilder) {
     const anchorRect = activeAnchor.getBoundingClientRect();
     
     // DIRECTIONAL BOUNDS RULE:
-    // Scrolling Down: Only closes when the bottom edge of the popup completely exits the top of viewport.
-    // Scrolling Up: Closes when the top edge of the icon completely exits the bottom of viewport.
     const isOffScreen = panelRect.bottom < 0 || anchorRect.top > window.innerHeight;
     
     if (isOffScreen) {
@@ -616,14 +685,14 @@ const ICONS = {
   close: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>'
 };
 
-function buildPanelHTML(analysisState) {
+function buildPanelHTML(analysisState, onRetry) {
   return (panel) => {
     const logoUrl = typeof chrome !== 'undefined' && chrome.runtime ? chrome.runtime.getURL('/logo.png') : '';
     
     panel.innerHTML = `
       <div class="verity-header">
-        <div class="verity-logo">
-          <img src="${logoUrl}" class="verity-logo-icon" />
+        <div style="display: flex; gap:8px; align-items: center;">
+          <img src="${logoUrl}" class="verity-logo" />
           <span>${t('verityAnalysis')}</span>
         </div>
         <div style="display:flex; gap:4px; align-items:center;">
@@ -636,7 +705,12 @@ function buildPanelHTML(analysisState) {
           <div class="loader-circle"></div>
           <p style="font-weight:500; font-size:13px;">${t('analyzing')}</p>
         </div>
-        <div class="verity-error" style="display:${analysisState.error ? 'flex' : 'none'}; color:var(--verity-danger); text-align:center; padding:24px;">${analysisState.error || ''}</div>
+        <div class="verity-error" style="display:${analysisState.error ? 'flex' : 'none'}; color:var(--verity-danger); text-align:center; padding:24px;">
+          ${analysisState.error || ''}
+        </div>
+        <div class="verity-retry-wrapper" style="display:${analysisState.error ? 'flex' : 'none'}">
+          <button class="verity-retry-btn verity-btn">Retry</button>
+        </div>
         <div class="verity-results" style="display:${analysisState.data ? 'block' : 'none'}"></div>
       </div>
       <div class="verity-footer">
@@ -647,6 +721,12 @@ function buildPanelHTML(analysisState) {
     if (analysisState.data) {
       renderData(panel.querySelector('.verity-results'), analysisState.data);
     }
+
+    panel.querySelector('.verity-retry-btn')?.addEventListener('click', () => {
+      if (typeof onRetry === 'function') {
+        onRetry();
+      }
+    });
 
     panel.querySelector('.verity-close').addEventListener('click', closeFloatingPanel);
     panel.querySelector('.verity-settings-btn').addEventListener('click', () => {
@@ -664,8 +744,8 @@ function showLoginPanel(panel, anchorBtn) {
     
     panel.innerHTML = `
       <div class="verity-header">
-        <div class="verity-logo">
-          <img src="${logoUrl}" alt="V" class="verity-logo-icon" />
+        <div style="display: flex; gap:8px; align-items: center;">
+          <img src="${logoUrl}" alt="V" class="verity-logo" />
           <span>${t('verityAnalysis')}</span>
         </div>
         <div style="display:flex; gap:4px; align-items:center;">
@@ -681,9 +761,7 @@ function showLoginPanel(panel, anchorBtn) {
             Send a message to the Verity team and we'll review your case and get back as soon as possible.
           </p>
           <a href="https://verity.dpdns.org/support" target="_blank" style="display:contents; text-align: center; text-decoration: none;">
-            <button 
-              style="padding:9px; border-radius:6px; background:var(--verity-primary);
-              color:#fff; border:none; font-size:13px; font-weight:600; cursor:pointer;">
+            <button class="verity-btn">
               Request Assistance
             </button>
           </a>
@@ -700,9 +778,7 @@ function showLoginPanel(panel, anchorBtn) {
             style="padding:8px 10px; border-radius:6px; border:1px solid var(--verity-border);
                    font-size:13px; outline:none; background:var(--verity-background);
                    color:var(--verity-foreground);" />
-          <button id="v_send_btn"
-            style="padding:9px; border-radius:6px; background:var(--verity-primary);
-                   color:#fff; border:none; font-size:13px; font-weight:600; cursor:pointer;">
+          <button id="v_send_btn" class="verity-btn">
             Send magic link
           </button>
           <div id="v_msg" style="font-size:12px; display:none; line-height:1.5;"></div>
@@ -774,65 +850,84 @@ function buildUI(shadowRoot, postText) {
     </svg>
   `;
 
+  async function runAnalysis() {
+    analysisState.hasAnalyzed = true;
+    analysisState.loading = true;
+    analysisState.error = null;
+    analysisState.data = null;
+    btn.classList.add("loading");
+
+    buildPanelHTML(analysisState, runAnalysis)(floatingPanel);
+
+    let showedLoginPanel = false;
+
+    try {
+      const token = await getToken();
+      if (!token) throw new Error('Unauthorized');
+
+      const analysisLanguage = userSettings.outputMode === 'article' ? null : userSettings.uiLanguage;
+      
+      // 1. Mark the start time right before fetch
+      const startTime = performance.now();
+
+      const resp = await fetch(VERITY_API_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify({ text: postText, language: analysisLanguage })
+      });
+
+      if (!resp.ok) throw resp.status === 401 ? new Error('Unauthorized') : new Error(`API returned ${resp.status}`);
+      const data = await resp.json();
+
+      // 2. Mark the end time as soon as the payload resolves
+      const endTime = performance.now();
+      const latencyMs = Math.round(endTime - startTime);
+
+      if (data.error) throw new Error(data.error);
+
+      analysisState.data = data;
+      analysisState.error = null;
+
+      // 3. Trigger diagnostic recorders
+      if (userSettings.logging === 'enabled'){
+        recordLocalDiagnostics(latencyMs, resp.status, data, postText);
+      }
+      
+    } catch (err) {
+      if (err.message === 'Unauthorized') {
+        showedLoginPanel = true;
+        analysisState.hasAnalyzed = false;
+        analysisState.loading = false;
+        btn.classList.remove("loading");
+        await showLoginPanel(floatingPanel, btn);
+        return;
+      }
+
+      warn("Analysis failed:", err);
+      analysisState.error = "Failed: " + err.message;
+      analysisState.data = null;
+
+    } finally {
+      analysisState.loading = false;
+      btn.classList.remove("loading");
+      if (activeAnchor === btn) {
+        buildPanelHTML(analysisState, runAnalysis)(floatingPanel);
+      }
+    }
+  }
+
   btn.addEventListener("click", async (e) => {
     e.preventDefault();
     e.stopPropagation();
 
-    const opened = openFloatingPanel(btn, buildPanelHTML(analysisState));
+    const opened = openFloatingPanel(btn, buildPanelHTML(analysisState, runAnalysis));
     if (!opened) return;
 
     if (!analysisState.hasAnalyzed) {
-      analysisState.hasAnalyzed = true;
-      analysisState.loading = true;
-      btn.classList.add("loading");
-
-      buildPanelHTML(analysisState)(floatingPanel);
-
-      let showedLoginPanel = false;
-
-      try {
-        const token = await getToken();
-
-        if (!token) throw new Error('Unauthorized');
-
-        const analysisLanguage = userSettings.outputMode === 'article' ? null : userSettings.uiLanguage;
-        const resp = await fetch(VERITY_API_URL, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${token}`
-          },
-          body: JSON.stringify({ text: postText, language: analysisLanguage })
-        });
-
-        if (!resp.ok) throw resp.status === 401 ? new Error('Unauthorized') : new Error(`API returned ${resp.status}`);
-        const data = await resp.json();
-        if (data.error) throw new Error(data.error);
-
-        analysisState.data = data;
-        analysisState.error = null;
-
-      } catch (err) {
-        if (err.message === 'Unauthorized') {
-          showedLoginPanel = true;
-          analysisState.hasAnalyzed = false;
-          analysisState.loading = false;
-          btn.classList.remove("loading");
-          await showLoginPanel(floatingPanel, btn);
-          return;
-        }
-
-        warn("Analysis failed:", err);
-        analysisState.error = "Failed: " + err.message;
-        analysisState.data = null;
-
-      } finally {
-        analysisState.loading = false;
-        btn.classList.remove("loading");
-        if (activeAnchor === btn) {
-          buildPanelHTML(analysisState)(floatingPanel);
-        }
-      }
+      await runAnalysis();
     }
   });
 
