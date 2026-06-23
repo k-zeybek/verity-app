@@ -1,0 +1,51 @@
+name: Manual Build and Release WXT Extension
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version Tag (e.g., v1.0.0)'
+        required: true
+        type: string
+      title:
+        description: 'Release Title'
+        required: true
+        type: string
+      description:
+        description: 'Release Description / Changelog'
+        required: false
+        type: string
+        default: 'Manual release build.'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      # This runs the production build and generates the browser-ready .zip files
+      - name: Build and Zip Extension
+        run: npx wxt zip
+
+      # WXT places the zipped files inside the '.output' folder
+      - name: Create GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ inputs.version }}" .output/*.zip \
+            --title "${{ inputs.title }}" \
+            --notes "${{ inputs.description }}" \
+            --target "${{ github.ref_name }}"
