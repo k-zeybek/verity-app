@@ -26,13 +26,11 @@ export default defineBackground(() => {
         sendResponse({ success: true });
       });
       
-      return true; // REQUIRED: Tells Chrome to keep the tunnel open for the async storage write
+      return true;
     }
 
-    // Fallback for unhandled messages
     sendResponse({ success: false, error: 'Unrecognized message type' });
   });
 });
 
-// Simple internal logger helper for background debugging
 function log(...args) { console.log("[Verity Background]", ...args); }

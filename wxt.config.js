@@ -2,6 +2,7 @@ import { defineConfig } from 'wxt';
 import { resolve } from 'node:path';
 
 const userDataDir = resolve(process.cwd(), '.wxt', 'user-data');
+const isDev = process.env.NODE_ENV === 'development' || process.argv.includes('dev');
 
 export default defineConfig({
   manifest: () => ({
@@ -10,7 +11,9 @@ export default defineConfig({
     permissions: ["storage"],
     host_permissions: [
       "*://*.linkedin.com/*",
-      "https://verity.backnd.workers.dev/*"
+      isDev
+        ? "https://verity-staging.backnd.workers.dev/*"
+        : "https://verity.backnd.workers.dev/*"
     ],
     web_accessible_resources: [{
       resources: ['logo.png'],
@@ -24,8 +27,9 @@ export default defineConfig({
     },
     key: import.meta.env.WXT_EXTENSION_KEY,
     externally_connectable: {
-      matches: ["https://verity.dpdns.org/*", "https://verity-site.backnd.workers.dev/*"]
-      
+      matches: isDev
+        ? ["https://verity-site-staging.backnd.workers.dev/*"]
+        : ["https://verity.dpdns.org/*", "https://verity-site.backnd.workers.dev/*"]
     },
     options_ui: {
       page: 'options.html',

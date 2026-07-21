@@ -5,9 +5,18 @@ const I18N = {
   de: { popupDesc: "Faktenprüfung von LinkedIn-Beiträgen mit KI. Klicken Sie auf die Verity-Schaltfläche neben einem Beitrag, um die Behauptungen zu analysieren.", popupActive: "Aktiv", settingsTitleAttr: "Einstellungen" }
 };
 
+const VERITY_SITE_URL = import.meta.env.DEV
+  ? "https://verity-site-staging.backnd.workers.dev"
+  : "https://verity.dpdns.org";
+
 // 1. Put all your startup code inside a single init function
 function initExtensionUI() {
   console.log("Initializing UI...");
+
+  // Set dynamic site URLs for dev/staging vs production
+  document.getElementById('verity-beta-link').href = `${VERITY_SITE_URL}/beta-access`;
+  document.getElementById('verity-magic-link').href = `${VERITY_SITE_URL}/auth/magic-link`;
+  document.getElementById('verity-support-link').href = `${VERITY_SITE_URL}/support`;
 
   // Handle Themes and Translations
   chrome.storage.sync.get({ theme: 'light', uiLanguage: 'en' }, (items) => {

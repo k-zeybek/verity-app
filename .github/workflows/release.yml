@@ -15,7 +15,7 @@ on:
         description: 'Release Description / Changelog'
         required: false
         type: string
-        default: 'Manual release build.'
+        default: ''
 
 jobs:
   release:

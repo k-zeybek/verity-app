@@ -11,7 +11,13 @@ export default defineContentScript({
     runAt: "document_idle",
     main() {
     
-const VERITY_API_URL = "https://verity.backnd.workers.dev";
+const VERITY_API_URL = import.meta.env.DEV
+  ? "https://verity-staging.backnd.workers.dev"
+  : "https://verity.backnd.workers.dev";
+
+const VERITY_SITE_URL = import.meta.env.DEV
+  ? "https://verity-site-staging.backnd.workers.dev"
+  : "https://verity.dpdns.org";
 
 // Settings & I18N
 let userSettings = { theme: 'light', uiLanguage: 'en', outputMode: 'display', logging: 'disabled' };
@@ -89,7 +95,7 @@ const I18N = {
     verityAnalysis: "Verity Analysis",
     accurate: "Accurate", 
     misleading: "Misleading",
-    unsupportedLabel: "Unsupported",
+    //unsupportedLabel: "Unsupported",
     falseLabel: "False",        
     unverifiable: "Unverifiable",
     fallacyLabel: "Fallacy"
@@ -106,7 +112,7 @@ const I18N = {
     verityAnalysis: "Análisis Verity",
     accurate: "Verificado",
     misleading: "Engañoso",
-    unsupportedLabel: "No respaldado",
+    //unsupportedLabel: "No respaldado",
     falseLabel: "Falso",
     unverifiable: "No verificable",
     fallacyLabel: "Falacia"
@@ -123,7 +129,7 @@ const I18N = {
     verityAnalysis: "Analyse Verity",
     accurate: "Vérifié",
     misleading: "Trompeur",
-    unsupportedLabel: "Non étayé",
+    //unsupportedLabel: "Non étayé",
     falseLabel: "Faux",
     unverifiable: "Invérifiable",
     fallacyLabel: "Sophisme"
@@ -140,7 +146,7 @@ const I18N = {
     verityAnalysis: "Verity-Analyse",
     accurate: "Verifiziert",
     misleading: "Irreführend",
-    unsupportedLabel: "Nicht unterstützt",
+    //unsupportedLabel: "Nicht unterstützt",
     falseLabel: "Falsch",
     unverifiable: "Nicht verifizierbar",
     fallacyLabel: "Fehlschluss"
@@ -173,6 +179,7 @@ const OVERFLOW_SVG = 'svg[id*="overflow"]';
 const MIN_TEXT_LEN = 50;
 
 let totalInjected = 0;
+let lastUrl = location.href;
 
 function log(...args) { console.log("[Verity]", ...args); }
 function warn(...args) { console.warn("[Verity]", ...args); }
@@ -185,13 +192,10 @@ function recordLocalDiagnostics(latencyMs, status, responseData, rawText) {
 
   const logEntry = {
     timestamp: new Date().toISOString(),
-    url: VERITY_API_URL,
     status: status,
     latencyMs: latencyMs,
     payloadSummary: {
       charCount: rawText.length,
-      logicalScore: responseData.logical_score,
-      overallRating: responseData.overall_rating,
       claimsCount: responseData.claims?.length || 0,
       fallaciesCount: responseData.fallacies?.length || 0,
       content: {
@@ -199,7 +203,7 @@ function recordLocalDiagnostics(latencyMs, status, responseData, rawText) {
         analysis: {
           claims: responseData.claims,
           fallacies: responseData.fallacies,
-          summary: responseData.summary,
+          explanation: responseData.explanation,
           overallRating: responseData.overall_rating,
           logicalScore: responseData.logical_score
         }
@@ -760,7 +764,7 @@ function showLoginPanel(panel, anchorBtn) {
           <p style="font-size:12px; color:var(--verity-muted); margin:0; line-height:1.5;">
             Send a message to the Verity team and we'll review your case and get back as soon as possible.
           </p>
-          <a href="https://verity.dpdns.org/support" target="_blank" style="display:contents; text-align: center; text-decoration: none;">
+          <a href="${VERITY_SITE_URL}/support" target="_blank" style="display:contents; text-align: center; text-decoration: none;">
             <button class="verity-btn">
               Request Assistance
             </button>
@@ -784,7 +788,7 @@ function showLoginPanel(panel, anchorBtn) {
           <div id="v_msg" style="font-size:12px; display:none; line-height:1.5;"></div>
           <p style="font-size:11px; color:var(--verity-muted); margin:0; text-align:center;">
             No account yet?
-            <a href="https://verity.dpdns.org/beta-access" target="_blank"
+            <a href="${VERITY_SITE_URL}/beta-access" target="_blank"
                style="color:var(--verity-primary); text-decoration:none;">
               Request beta access
             </a>
@@ -936,15 +940,16 @@ function buildUI(shadowRoot, postText) {
 
 function renderData(container, data) {
   const getVerdictConfig = (v) => {
-    if (v === "accurate")    return { label: t('accurate'),         tagClass: "rating-accurate",   icon: ICONS.check };
+    if (v === "true")    return { label: t('accurate'),         tagClass: "rating-accurate",   icon: ICONS.check };
     if (v === "false")       return { label: t('falseLabel'),       tagClass: "rating-false",      icon: ICONS.xCircle };
-    if (v === "unsupported") return { label: t('unsupportedLabel'), tagClass: "rating-false",      icon: ICONS.xCircle };
+    //if (v === "unsupported") return { label: t('unsupportedLabel'), tagClass: "rating-false",      icon: ICONS.xCircle };
     if (v === "misleading")  return { label: t('misleading'),       tagClass: "rating-misleading", icon: ICONS.alert };
-    return                          { label: t('unverifiable'),     tagClass: "",                  icon: ICONS.help };
+    if (v === "unverifiable") return { label: t('unverifiable'),     tagClass: "",                  icon: ICONS.help };
+    return { label: t('unknown'),          tagClass: "",                  icon: ICONS.help };
   };
 
   const score = data.logical_score;
-  const scoreClass = score >= 70 ? 'score-high' : (score >= 40 ? 'score-mid' : 'score-low');
+  const scoreClass = score >= 80 ? 'score-high' : (score >= 60 ? 'score-mid' : 'score-low');
   const offset = 251.2 - (251.2 * score) / 100;
   const ratingCfg = getVerdictConfig(data.overall_rating);
 
@@ -1056,6 +1061,12 @@ function processPost(post) {
 }
 
 function scan() {
+  if (location.href !== lastUrl) {
+      log("SPA Navigation detected. Closing open panels.");
+      lastUrl = location.href;
+      closeFloatingPanel();
+    }
+
   const posts = findPosts();
   let count = 0;
   for (const p of posts) {
@@ -1075,6 +1086,10 @@ function init() {
 
   ensureFloatingHost();
   scan();
+
+  window.addEventListener('beforeunload', () => {
+      closeFloatingPanel();
+    });
 
   let retries = 0;
   const iv = setInterval(() => {
