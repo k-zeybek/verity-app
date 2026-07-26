@@ -6,9 +6,6 @@ const I18N = {
     outputLanguageLabel: "Output Language",
     outputModeDisplay: "Same as Display Language",
     outputModeArticle: "Same as Article Language",
-    loggingLabel: "Local Logging",
-    loggingEnabled: "Enabled",
-    loggingDisabled: "Disabled",
     saveBtn: "Save Settings", savedMsg: "Settings saved." 
   },
   es: { 
@@ -18,9 +15,6 @@ const I18N = {
     outputLanguageLabel: "Idioma de Salida",
     outputModeDisplay: "Igual que el idioma de pantalla",
     outputModeArticle: "Igual que el idioma del artículo",
-    loggingLabel: "Registro Local",
-    loggingEnabled: "Habilitado",
-    loggingDisabled: "Deshabilitado",
     saveBtn: "Guardar", savedMsg: "Configuración guardada." 
   },
   fr: { 
@@ -30,9 +24,6 @@ const I18N = {
     outputLanguageLabel: "Langue de sortie",
     outputModeDisplay: "Identique à la langue d'affichage",
     outputModeArticle: "Identique à la langue de l'article",
-    loggingLabel: "Journalisation Locale",
-    loggingEnabled: "Activée",
-    loggingDisabled: "Désactivée",
     saveBtn: "Enregistrer", savedMsg: "Paramètres enregistrés." 
   },
   de: { 
@@ -42,9 +33,6 @@ const I18N = {
     outputLanguageLabel: "Ausgabesprache",
     outputModeDisplay: "Wie Anzeigesprache",
     outputModeArticle: "Wie Artikelsprache",
-    loggingLabel: "Lokale Protokollierung",
-    loggingEnabled: "Aktiviert",
-    loggingDisabled: "Deaktiviert",
     saveBtn: "Speichern", savedMsg: "Einstellungen gespeichert." 
   }
 };
@@ -64,13 +52,11 @@ function restoreOptions() {
   chrome.storage.sync.get({ 
     theme: 'light', 
     uiLanguage: 'en',
-    outputMode: 'article',
-    logging: 'disabled'
+    outputMode: 'article'
   }, (items) => {
     document.getElementById('theme').value = items.theme;
     document.getElementById('uiLanguage').value = items.uiLanguage;
     document.getElementById('outputMode').value = items.outputMode;
-    document.getElementById('logging').value = items.logging;
     applyThemeAndLanguage(items.theme, items.uiLanguage);
   });
 }
@@ -79,9 +65,8 @@ function saveOptions() {
   const theme = document.getElementById('theme').value;
   const uiLanguage = document.getElementById('uiLanguage').value;
   const outputMode = document.getElementById('outputMode').value;
-  const logging = document.getElementById('logging').value;
 
-  chrome.storage.sync.set({ theme, uiLanguage, outputMode, logging }, () => {
+  chrome.storage.sync.set({ theme, uiLanguage, outputMode }, () => {
     applyThemeAndLanguage(theme, uiLanguage);
     const status = document.getElementById('status');
     const dict = I18N[uiLanguage] || I18N['en'];

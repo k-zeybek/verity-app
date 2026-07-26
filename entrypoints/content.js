@@ -11,7 +11,7 @@ export default defineContentScript({
     runAt: "document_idle",
     main() {
     
-const VERITY_API_URL = import.meta.env.DEV
+const SUPABASE_URL = import.meta.env.DEV
   ? "https://verity-staging.backnd.workers.dev"
   : "https://verity.backnd.workers.dev";
 
@@ -20,20 +20,18 @@ const VERITY_SITE_URL = import.meta.env.DEV
   : "https://verity.dpdns.org";
 
 // Settings & I18N
-let userSettings = { theme: 'light', uiLanguage: 'en', outputMode: 'display', logging: 'disabled' };
+let userSettings = { theme: 'light', uiLanguage: 'en', outputMode: 'display' };
 if (typeof chrome !== 'undefined' && chrome.storage) {
-  chrome.storage.sync.get(['theme', 'uiLanguage', 'outputMode', 'logging'], (res) => {
+  chrome.storage.sync.get(['theme', 'uiLanguage', 'outputMode'], (res) => {
     if (res.theme) userSettings.theme = res.theme;
     if (res.uiLanguage) userSettings.uiLanguage = res.uiLanguage;
     if (res.outputMode) userSettings.outputMode = res.outputMode;
-    if (res.logging) userSettings.logging = res.logging;
   });
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area === 'sync') {
       if (changes.theme) userSettings.theme = changes.theme.newValue;
       if (changes.uiLanguage) userSettings.uiLanguage = changes.uiLanguage.newValue;
       if (changes.outputMode) userSettings.outputMode = changes.outputMode.newValue;
-      if (changes.logging) userSettings.logging = changes.logging.newValue;
       updateAllPanels();
     }
     
@@ -184,7 +182,7 @@ let lastUrl = location.href;
 function log(...args) { console.log("[Verity]", ...args); }
 function warn(...args) { console.warn("[Verity]", ...args); }
 
-function recordLocalDiagnostics(latencyMs, status, responseData, rawText) {
+function recordLocalDiagnostics(latencyMs, status, responseData, rawText, uiLang, analysisLang) {
   if (typeof chrome === 'undefined' || !chrome.storage || !chrome.storage.local) {
     warn("Chrome local storage unavailable for diagnostics.");
     return;
@@ -192,22 +190,18 @@ function recordLocalDiagnostics(latencyMs, status, responseData, rawText) {
 
   const logEntry = {
     timestamp: new Date().toISOString(),
-    status: status,
-    latencyMs: latencyMs,
-    payloadSummary: {
+    status,
+    latencyMs,
+    settings: {
+      uiLanguage: uiLang,
+      analysisLanguage: analysisLang
+    },
+    payload: {
       charCount: rawText.length,
       claimsCount: responseData.claims?.length || 0,
       fallaciesCount: responseData.fallacies?.length || 0,
-      content: {
-        post: rawText,
-        analysis: {
-          claims: responseData.claims,
-          fallacies: responseData.fallacies,
-          explanation: responseData.explanation,
-          overallRating: responseData.overall_rating,
-          logicalScore: responseData.logical_score
-        }
-      }
+      post: rawText,
+      analysis: responseData
     }
   };
 
@@ -220,6 +214,16 @@ function recordLocalDiagnostics(latencyMs, status, responseData, rawText) {
     chrome.storage.local.set({ verity_diagnostics: logs }, () => {
       log(`Diagnostic saved locally. Latency: ${latencyMs}ms`);
     });
+  });
+}
+
+function clearDiagnostics() {
+  if (typeof chrome === 'undefined' || !chrome.storage || !chrome.storage.local) {
+    warn("Chrome local storage unavailable.");
+    return;
+  }
+  chrome.storage.local.remove('verity_diagnostics', () => {
+    log("Diagnostics cache cleared.");
   });
 }
 
@@ -874,7 +878,7 @@ function buildUI(shadowRoot, postText) {
       // 1. Mark the start time right before fetch
       const startTime = performance.now();
 
-      const resp = await fetch(VERITY_API_URL, {
+      const resp = await fetch(SUPABASE_URL, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -895,9 +899,9 @@ function buildUI(shadowRoot, postText) {
       analysisState.data = data;
       analysisState.error = null;
 
-      // 3. Trigger diagnostic recorders
-      if (userSettings.logging === 'enabled'){
-        recordLocalDiagnostics(latencyMs, resp.status, data, postText);
+      // 3. [DEV ONLY] Record debug diagnostics with language settings
+      if (import.meta.env.DEV) {
+        recordLocalDiagnostics(latencyMs, resp.status, data, postText, userSettings.uiLanguage, analysisLanguage);
       }
       
     } catch (err) {

@@ -1,5 +1,10 @@
-const SUPABASE_URL = 'https://gpyxoibtcjuabmujrxpq.supabase.co';
-const SUPABASE_PUB_KEY = 'sb_publishable_RMvnK4S1r7txxEFAqmEWFg_L4OkhGwx';
+const SUPABASE_URL = import.meta.env.DEV
+  ? "https://cyeqmgrqmntkjaznycic.supabase.co"
+  : "https://gpyxoibtcjuabmujrxpq.supabase.co";
+
+const SUPABASE_PUB_KEY = import.meta.env.DEV
+  ? "sb_publishable_GEBFgWIg79j4xIstoilRjA_hsFoaX0z"
+  : "sb_publishable_RMvnK4S1r7txxEFAqmEWFg_L4OkhGwx";
 
 export function getToken() {
   return new Promise((resolve) => {
