@@ -41,7 +41,9 @@ export default defineConfig({
     dataPersistence: 'project',
     userDataDir,
     chromiumArgs: [
-      `--user-data-dir=${userDataDir}`
-    ],
+      `--user-data-dir=${userDataDir}`,
+      '--exclude-switches=enable-automation',
+      '--disable-features=LockProfileCookieDatabase'
+    ]
   }
 });

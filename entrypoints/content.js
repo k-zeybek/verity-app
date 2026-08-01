@@ -91,6 +91,9 @@ const I18N = {
     fallacies: "Logical Fallacies",
     summary: "Evaluation Summary",
     verityAnalysis: "Verity Analysis",
+    phaseExtracting: "Extracting claims...",
+    phaseSearching: "Searching the web...",
+    phaseEvaluating: "Evaluating truth...",
     accurate: "Accurate", 
     misleading: "Misleading",
     //unsupportedLabel: "Unsupported",
@@ -108,6 +111,9 @@ const I18N = {
     fallacies: "Falacias Lógicas",
     summary: "Resumen de Evaluación",
     verityAnalysis: "Análisis Verity",
+    phaseExtracting: "Extrayendo afirmaciones...",
+    phaseSearching: "Buscando en la web...",
+    phaseEvaluating: "Evaluando la veracidad...",
     accurate: "Verificado",
     misleading: "Engañoso",
     //unsupportedLabel: "No respaldado",
@@ -125,6 +131,9 @@ const I18N = {
     fallacies: "Sophismes Logiques",
     summary: "Résumé de l'évaluation",
     verityAnalysis: "Analyse Verity",
+    phaseExtracting: "Extraction des affirmations...",
+    phaseSearching: "Recherche sur le web...",
+    phaseEvaluating: "Évaluation de la véracité...",
     accurate: "Vérifié",
     misleading: "Trompeur",
     //unsupportedLabel: "Non étayé",
@@ -142,6 +151,9 @@ const I18N = {
     fallacies: "Logikfehler",
     summary: "Zusammenfassung",
     verityAnalysis: "Verity-Analyse",
+    phaseExtracting: "Behauptungen werden extrahiert...",
+    phaseSearching: "Websuche läuft...",
+    phaseEvaluating: "Wahrheitsgehalt wird bewertet...",
     accurate: "Verifiziert",
     misleading: "Irreführend",
     //unsupportedLabel: "Nicht unterstützt",
@@ -265,6 +277,25 @@ function extractPostText(post) {
   return best;
 }
 
+function findPostTextElement(post) {
+  for (const sel of TEXT_SELECTORS) {
+    const el = post.querySelector(sel);
+    if (el) {
+      const text = (el.innerText || el.textContent || "").trim();
+      if (text.length > 30) return el;
+    }
+  }
+  let best = null, bestLen = 0;
+  post.querySelectorAll("p, span").forEach(s => {
+    const txt = (s.innerText || "").trim();
+    if (txt.length > bestLen && txt.length > MIN_TEXT_LEN) {
+      best = s;
+      bestLen = txt.length;
+    }
+  });
+  return best;
+}
+
 function findMenuButton(post) {
   const svg = post.querySelector(OVERFLOW_SVG);
   if (svg) {
@@ -291,6 +322,7 @@ let floatingPanelShadow = null;
 let floatingPanel = null;
 let activeAnchor = null;
 let positionRafId = null;
+let dragState = null; // { startX, startY, startLeft, startTop }
 
 function ensureFloatingHost() {
   if (floatingPanelHost) return;
@@ -307,7 +339,7 @@ function ensureFloatingHost() {
     overflow: visible;
     pointer-events: none;
     mix-blend-mode: normal; 
-    z-index: 1; 
+    z-index: 2147483647; 
   `;
   document.body.appendChild(floatingPanelHost);
 
@@ -359,7 +391,7 @@ function injectFloatingStyles(shadowRoot) {
       color: var(--verity-foreground);
       flex-direction: column;
       cursor: default;
-      z-index: 1;
+      z-index: 2147483647;
       backdrop-filter: blur(12px);
       animation: verity-slide-down 0.2s ease-out;
       max-height: 80vh;
@@ -368,8 +400,11 @@ function injectFloatingStyles(shadowRoot) {
     .verity-panel.open {
       display: flex;
     }
+    .verity-panel.no-animation {
+      animation: none;
+    }
     @keyframes verity-slide-down {
-      from { opacity: 0; transform: translateY(-6px); }
+      from { opacity: 0; transform: translateY(-4px); }
       to   { opacity: 1; transform: translateY(0); }
     }
 
@@ -382,6 +417,14 @@ function injectFloatingStyles(shadowRoot) {
       background: rgba(248,250,252,0.8);
       border-radius: var(--verity-radius) var(--verity-radius) 0 0;
       flex-shrink: 0;
+      cursor: grab;
+      user-select: none;
+    }
+    .verity-header.dragging {
+      cursor: grabbing;
+    }
+    .verity-header button {
+      cursor: pointer;
     }
     .verity-logo {
       width: 28px;
@@ -446,6 +489,34 @@ function injectFloatingStyles(shadowRoot) {
       animation: spin 1s linear infinite;
     }
     @keyframes spin { 100% { transform: rotate(360deg); } }
+
+    .verity-phases {
+      display: flex; flex-direction: column; align-items: stretch; gap: 14px; width: 100%;
+      padding: 8px 8px 4px 8px;
+    }
+    .verity-phase {
+      display: flex; align-items: center; gap: 10px;
+      font-size: 13px; color: var(--verity-muted-foreground);
+      opacity: 0.6; transition: opacity 0.3s ease, color 0.3s ease;
+    }
+    .verity-phase.active { opacity: 1; color: var(--verity-foreground); font-weight: 600; }
+    .verity-phase.done { opacity: 0.9; color: var(--verity-success); }
+    .phase-icon {
+      width: 20px; height: 20px; display: inline-flex; align-items: center;
+      justify-content: center; flex-shrink: 0;
+    }
+    .phase-spinner {
+      width: 14px; height: 14px; border: 2px solid var(--verity-border);
+      border-top-color: var(--verity-primary); border-radius: 50%;
+      animation: spin 0.8s linear infinite; display: none;
+    }
+    .phase-check { display: none; color: var(--verity-success); font-weight: 700; font-size: 14px; }
+    .phase-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--verity-border); display: block; }
+    .verity-phase.active .phase-spinner { display: block; }
+    .verity-phase.active .phase-dot { display: none; }
+    .verity-phase.done .phase-check { display: block; }
+    .verity-phase.done .phase-spinner { display: none; }
+    .verity-phase.done .phase-dot { display: none; }
 
     .section-title {
       font-size: 11px; font-weight: 600; color: var(--verity-muted-foreground);
@@ -543,31 +614,59 @@ function injectFloatingStyles(shadowRoot) {
 function positionFloatingPanel(anchorBtn) {
   if (!floatingPanel || !anchorBtn) return;
 
-  const rect = anchorBtn.getBoundingClientRect();
   const panelWidth = 380;
-  const margin = 8;
+  const margin = 12;
   const viewportWidth = window.innerWidth;
+  const viewportHeight = window.innerHeight;
 
-  // STRICT RULE: Only place directly below the anchor icon.
-  let top = rect.bottom + margin;
-  let left = rect.right - panelWidth;
+  // Bottom edge of the sticky LinkedIn navbar. The panel must never slide
+  // above this line, otherwise it overlaps the top navigation bar.
+  const navbar = document.querySelector('.global-nav, #global-nav, header');
+  const navBottom = navbar ? navbar.getBoundingClientRect().bottom : 52;
+  const minTop = Math.max(margin, navBottom + margin);
 
-  if (left < margin) left = margin;
-  if (left + panelWidth > viewportWidth - margin) left = viewportWidth - panelWidth - margin;
+  // Find the post element to position the panel to its right side
+  let postRect = null;
+  let postEl = anchorBtn.verityPostElement;
+  if (postEl) {
+    postRect = postEl.getBoundingClientRect();
+  }
+
+  let top, left;
+
+  if (postRect) {
+    // Position to the RIGHT of the post
+    left = postRect.right + margin;
+    top = Math.max(minTop, postRect.top);
+
+    // If panel would overflow the right edge, place it to the left of the post instead
+    if (left + panelWidth > viewportWidth - margin) {
+      left = postRect.left - panelWidth - margin;
+    }
+
+    // If both sides overflow, center in viewport
+    if (left < margin) {
+      left = margin;
+      top = Math.max(minTop, postRect.top);
+    }
+
+    // Keep top within viewport
+    if (top + 400 > viewportHeight) {
+      top = Math.max(minTop, postRect.bottom - 400);
+    }
+    if (top < minTop) top = minTop;
+  } else {
+    // Fallback: place below the anchor button
+    const rect = anchorBtn.getBoundingClientRect();
+    top = Math.max(minTop, rect.bottom + margin);
+    left = rect.right - panelWidth;
+    if (left < margin) left = margin;
+    if (left + panelWidth > viewportWidth - margin) left = viewportWidth - panelWidth - margin;
+  }
 
   floatingPanel.style.top  = `${top}px`;
   floatingPanel.style.left = `${left}px`;
-  
-  // Restored navbar clipping logic
-  const navbar = document.querySelector('.global-nav, #global-nav, header');
-  const navBottom = navbar ? navbar.getBoundingClientRect().bottom : 52;
-  const clipTop = Math.max(0, navBottom - top);
-
-  if (clipTop > 0) {
-    floatingPanel.style.clipPath = `inset(${clipTop}px 0px 0px 0px)`;
-  } else {
-    floatingPanel.style.clipPath = 'none';
-  }
+  floatingPanel.style.clipPath = 'none';
 }
 
 function openFloatingPanel(anchorBtn, contentBuilder) {
@@ -600,6 +699,12 @@ function openFloatingPanel(anchorBtn, contentBuilder) {
   function trackPosition() {
     if (!floatingPanel || floatingPanel.style.display === 'none' || !activeAnchor) return;
 
+    // Close if the associated post element is no longer in the DOM (SPA refresh)
+    if (activeAnchor.verityPostElement && !document.contains(activeAnchor.verityPostElement)) {
+      closeFloatingPanel();
+      return;
+    }
+
     positionFloatingPanel(activeAnchor);
 
     const panelRect = floatingPanel.getBoundingClientRect();
@@ -608,7 +713,17 @@ function openFloatingPanel(anchorBtn, contentBuilder) {
     // DIRECTIONAL BOUNDS RULE:
     const isOffScreen = panelRect.bottom < 0 || anchorRect.top > window.innerHeight;
     
-    if (isOffScreen) {
+    // Close when the post scrolls behind the navbar (its lower edge passes above navbar bottom)
+    const navbar = document.querySelector('.global-nav, #global-nav, header');
+    const navBottom = navbar ? navbar.getBoundingClientRect().bottom : 52;
+    const postEl = activeAnchor.verityPostElement;
+    let isBehindNavbar = false;
+    if (postEl) {
+      const postRect = postEl.getBoundingClientRect();
+      isBehindNavbar = postRect.bottom < navBottom;
+    }
+    
+    if (isOffScreen || isBehindNavbar) {
       closeFloatingPanel();
       return;
     }
@@ -620,14 +735,55 @@ function openFloatingPanel(anchorBtn, contentBuilder) {
   return true;
 }
 
+function initDragOnPanel(headerEl) {
+  headerEl.addEventListener('mousedown', (e) => {
+    // Ignore clicks on buttons inside the header
+    if (e.target.closest('button')) return;
+    e.preventDefault();
+
+    cancelAnimationFrame(positionRafId);
+
+    const panelRect = floatingPanel.getBoundingClientRect();
+    dragState = {
+      startX: e.clientX,
+      startY: e.clientY,
+      startLeft: panelRect.left,
+      startTop: panelRect.top
+    };
+
+    headerEl.classList.add('dragging');
+    floatingPanel.classList.add('no-animation');
+
+    function onMouseMove(ev) {
+      if (!dragState) return;
+      const dx = ev.clientX - dragState.startX;
+      const dy = ev.clientY - dragState.startY;
+      floatingPanel.style.left = `${dragState.startLeft + dx}px`;
+      floatingPanel.style.top = `${dragState.startTop + dy}px`;
+    }
+
+    function onMouseUp() {
+      headerEl.classList.remove('dragging');
+      dragState = null;
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+    }
+
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  });
+}
+
 function closeFloatingPanel() {
   if (!floatingPanel) return;
   cancelAnimationFrame(positionRafId);
   floatingPanel.style.display = 'none';
+  clearAllHighlights();
   if (activeAnchor) {
     activeAnchor.classList.remove('active');
     activeAnchor = null;
   }
+  dragState = null;
 }
 
 function createShadowHost(id) {
@@ -693,6 +849,72 @@ const ICONS = {
   close: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>'
 };
 
+const PHASE_ORDER = ["extracting", "searching", "evaluating"];
+
+function updatePhaseUI(panel, phaseKey) {
+  if (!panel || !phaseKey) return;
+  const currentIdx = PHASE_ORDER.indexOf(phaseKey);
+  if (currentIdx === -1) return;
+  panel.querySelectorAll('.verity-phase').forEach(el => {
+    const key = el.dataset.phase;
+    const idx = PHASE_ORDER.indexOf(key);
+    el.classList.toggle('active', key === phaseKey);
+    el.classList.toggle('done', idx !== -1 && idx < currentIdx);
+  });
+}
+
+async function consumeSSE(response, panel) {
+  return new Promise((resolve, reject) => {
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    function handleEvent(rawEvent) {
+      let eventName = "message";
+      const dataLines = [];
+      for (const line of rawEvent.split("\n")) {
+        if (line.startsWith("event:")) eventName = line.slice(6).trim();
+        else if (line.startsWith("data:")) dataLines.push(line.slice(5).trim());
+      }
+      if (!dataLines.length) return;
+      let parsed;
+      try { parsed = JSON.parse(dataLines.join("\n")); } catch { return; }
+
+      if (eventName === "phase" && parsed.key) {
+        updatePhaseUI(panel, parsed.key);
+      } else if (eventName === "result") {
+        resolve(parsed);
+      } else if (eventName === "error") {
+        reject(new Error(parsed.error || "Analysis failed."));
+      }
+    }
+
+    function parseChunk(chunk) {
+      buffer += chunk;
+      let idx;
+      while ((idx = buffer.indexOf("\n\n")) !== -1) {
+        const rawEvent = buffer.slice(0, idx);
+        buffer = buffer.slice(idx + 2);
+        handleEvent(rawEvent);
+      }
+    }
+
+    (async () => {
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          parseChunk(decoder.decode(value, { stream: true }));
+        }
+        parseChunk(decoder.decode());
+        reject(new Error("Stream ended without a result event."));
+      } catch (err) {
+        reject(err);
+      }
+    })();
+  });
+}
+
 function buildPanelHTML(analysisState, onRetry) {
   return (panel) => {
     const logoUrl = typeof chrome !== 'undefined' && chrome.runtime ? chrome.runtime.getURL('/logo.png') : '';
@@ -711,7 +933,20 @@ function buildPanelHTML(analysisState, onRetry) {
       <div class="verity-content">
         <div class="verity-loading" style="display:${analysisState.loading ? 'flex' : 'none'}">
           <div class="loader-circle"></div>
-          <p style="font-weight:500; font-size:13px;">${t('analyzing')}</p>
+          <div class="verity-phases">
+            <div class="verity-phase active" data-phase="extracting">
+              <span class="phase-icon"><span class="phase-spinner"></span><span class="phase-check">✓</span><span class="phase-dot"></span></span>
+              <span>${t('phaseExtracting')}</span>
+            </div>
+            <div class="verity-phase" data-phase="searching">
+              <span class="phase-icon"><span class="phase-spinner"></span><span class="phase-check">✓</span><span class="phase-dot"></span></span>
+              <span>${t('phaseSearching')}</span>
+            </div>
+            <div class="verity-phase" data-phase="evaluating">
+              <span class="phase-icon"><span class="phase-spinner"></span><span class="phase-check">✓</span><span class="phase-dot"></span></span>
+              <span>${t('phaseEvaluating')}</span>
+            </div>
+          </div>
         </div>
         <div class="verity-error" style="display:${analysisState.error ? 'flex' : 'none'}; color:var(--verity-danger); text-align:center; padding:24px;">
           ${analysisState.error || ''}
@@ -727,7 +962,7 @@ function buildPanelHTML(analysisState, onRetry) {
     `;
 
     if (analysisState.data) {
-      renderData(panel.querySelector('.verity-results'), analysisState.data);
+      renderData(panel.querySelector('.verity-results'), analysisState.data, analysisState.postTextEl);
     }
 
     panel.querySelector('.verity-retry-btn')?.addEventListener('click', () => {
@@ -743,6 +978,12 @@ function buildPanelHTML(analysisState, onRetry) {
       }
     });
     panel.addEventListener('wheel', (e) => e.stopPropagation(), { passive: true });
+
+    // Enable dragging on the header
+    const headerEl = panel.querySelector('.verity-header');
+    if (headerEl) {
+      initDragOnPanel(headerEl);
+    }
   };
 }
 
@@ -812,6 +1053,12 @@ function showLoginPanel(panel, anchorBtn) {
       msgEl.textContent = text;
     }
 
+    // Enable dragging on the header for login panel too
+    const headerEl = panel.querySelector('.verity-header');
+    if (headerEl) {
+      initDragOnPanel(headerEl);
+    }
+
     closeBtn?.addEventListener('click', () => {
       closeFloatingPanel();
       resolve(false);
@@ -843,8 +1090,259 @@ function showLoginPanel(panel, anchorBtn) {
   });
 }
 
-function buildUI(shadowRoot, postText) {
-  const analysisState = { loading: false, data: null, error: null, hasAnalyzed: false };
+// =============================================================================
+// Post text highlighting: hover over a claim → highlight its excerpt in the post
+// Uses the CSS Custom Highlight API (CSS.highlights + ::highlight()), which
+// never mutates the DOM. Links, mentions, and other inline elements therefore
+// cannot break the highlight, and cleanup is a single registry delete.
+// =============================================================================
+
+const HIGHLIGHT_NAMES = {
+  true: 'verity-claim-true',
+  false: 'verity-claim-false',
+  misleading: 'verity-claim-misleading',
+  unverifiable: 'verity-claim-unverifiable'
+};
+
+let highlightStyleEl = null;
+
+function ensureHighlightStyles() {
+  if (highlightStyleEl) return;
+  highlightStyleEl = document.createElement('style');
+  highlightStyleEl.textContent = `
+    ::highlight(verity-claim-true) {
+      background: rgba(34, 197, 94, 0.25);
+      border-radius: 3px;
+    }
+    ::highlight(verity-claim-false) {
+      background: rgba(239, 68, 68, 0.25);
+      border-radius: 3px;
+    }
+    ::highlight(verity-claim-misleading) {
+      background: rgba(245, 158, 11, 0.25);
+      border-radius: 3px;
+    }
+    ::highlight(verity-claim-unverifiable) {
+      background: rgba(59, 130, 246, 0.25);
+      border-radius: 3px;
+    }
+  `;
+  document.documentElement.appendChild(highlightStyleEl);
+}
+
+function clearAllHighlights() {
+  if (typeof CSS === 'undefined' || !CSS.highlights) return;
+  Object.values(HIGHLIGHT_NAMES).forEach(name => CSS.highlights.delete(name));
+}
+
+function normalizeWhitespace(str) {
+  return str.replace(/\s+/g, ' ').trim();
+}
+
+// Tags that innerText renders as separate lines. Treating these boundaries as
+// a single space keeps the synthetic buffer aligned with the innerText string
+// that was sent to the API, so offsets map back to the DOM correctly even when
+// paragraphs, <br>, or links split the text across many nodes.
+const BLOCK_TAGS = new Set([
+  'P','DIV','LI','UL','OL','H1','H2','H3','H4','H5','H6','BLOCKQUOTE',
+  'SECTION','ARTICLE','ASIDE','HEADER','FOOTER','FIGURE','FIGCAPTION',
+  'TABLE','THEAD','TBODY','TFOOT','TR','TD','TH','PRE','DL','DT','DD',
+  'FORM','FIELDSET','MAIN','NAV','HR'
+]);
+
+function isHiddenNode(node) {
+  try {
+    // aria-hidden elements are not rendered to AT/innerText
+    if (node.getAttribute && node.getAttribute('aria-hidden') === 'true') return true;
+    const style = getComputedStyle(node);
+    if (style.display === 'none' || style.visibility === 'hidden') return true;
+    // LinkedIn uses clip/clip-path/1px sizing for screen-reader-only duplicates
+    // that innerText excludes. Skip them so the index stays aligned.
+    if (style.position === 'absolute' && (
+      style.clip === 'rect(0px, 0px, 0px, 0px)' ||
+      style.clipPath === 'inset(50%)' ||
+      (parseInt(style.width) === 1 && parseInt(style.height) === 1)
+    )) return true;
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+// Normalize curly/smart punctuation to ASCII equivalents on both the excerpt
+// and the post text. The AI sometimes swaps straight quotes/apostrophes for
+// curly ones (or vice-versa), which breaks exact matching even when the words
+// are identical. This is still a verbatim match — only glyph variants are unified.
+// IMPORTANT: every replacement must be 1:1 (same length) so character positions
+// in the normalized string stay aligned with the original text and its DOM index.
+function normalizePunctuation(str) {
+  return str
+    .replace(/[\u201C\u201D\u201E\u201F\u00AB\u00BB]/g, '"')   // curly double quotes → "
+    .replace(/[\u2018\u2019\u201A\u201B\u0060\u00B4]/g, "'")   // curly single quotes/apostrophes → '
+    .replace(/[\u2013\u2014\u2015]/g, '-');                     // en/em dashes → -
+}
+
+function isBlockOrLineBreak(node) {
+  if (!node || node.nodeType !== Node.ELEMENT_NODE) return false;
+  const tag = node.tagName;
+  if (tag === 'BR' || tag === 'WBR') return true;
+  if (BLOCK_TAGS.has(tag)) return true;
+  try {
+    const display = getComputedStyle(node).display;
+    return /^(block|list-item|table|table-row|table-cell|flex|grid)$/.test(display);
+  } catch {
+    return false;
+  }
+}
+
+// Build a normalized text buffer that mirrors innerText (the exact string sent
+// to the API): whitespace runs collapse to one space, block/<br> boundaries
+// become a space, hidden elements are skipped, and inline elements (links,
+// mentions, spans) concatenate with no gap. Every character records the
+// (node, offset) it came from, so a match in the buffer maps to exact DOM
+// positions — links and other inline elements can't break the highlight.
+function buildTextIndex(rootEl) {
+  const chars = [];
+  const index = []; // index[charPos] = { node, offset } (null = synthetic space)
+  let pendingSpace = false;
+
+  function flushSpace() {
+    if (pendingSpace && chars.length > 0 && chars[chars.length - 1] !== ' ') {
+      chars.push(' ');
+      index.push(null); // synthetic space, not tied to a DOM char
+    }
+    pendingSpace = false;
+  }
+
+  function visit(node) {
+    if (node.nodeType === Node.TEXT_NODE) {
+      const text = node.textContent || '';
+      for (let i = 0; i < text.length; i++) {
+        const ch = text[i];
+        if (/\s/.test(ch)) {
+          pendingSpace = true;
+        } else {
+          flushSpace();
+          chars.push(ch);
+          index.push({ node, offset: i });
+        }
+      }
+      return;
+    }
+
+    if (node.nodeType !== Node.ELEMENT_NODE) return; // comments, etc.
+    if (isHiddenNode(node)) return;
+    const tag = node.tagName;
+    if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'NOSCRIPT' || tag === 'TEMPLATE') return;
+
+    if (tag === 'BR' || tag === 'WBR') {
+      pendingSpace = true; // line break between siblings
+      return;
+    }
+
+    const breaks = isBlockOrLineBreak(node);
+    if (breaks) {
+      flushSpace();
+      pendingSpace = true;
+    }
+    for (const child of node.childNodes) visit(child);
+    if (breaks) {
+      flushSpace();
+      pendingSpace = true;
+    }
+  }
+
+  visit(rootEl);
+  return { text: chars.join(''), index };
+}
+
+function highlightInPostElement(textEl, excerpt, verdict) {
+  if (!textEl || !excerpt) return;
+  if (typeof CSS === 'undefined' || !CSS.highlights) {
+    warn("Highlight: CSS Custom Highlight API not supported");
+    return;
+  }
+
+  clearAllHighlights();
+
+  const { text: fullText, index } = buildTextIndex(textEl);
+  const normalizedExcerpt = normalizeWhitespace(excerpt);
+
+  // Match against the same rendered text the API analyzed. The backend now
+  // guarantees the excerpt is a verbatim substring (post-parse repair), so
+  // exact matching is the primary path. We still tolerate two harmless AI
+  // formatting slips before giving up: wrapping quotes and curly punctuation.
+  let matchExcerpt = normalizedExcerpt;
+  let matchKind = "exact";
+  let excerptIndex = fullText.indexOf(matchExcerpt);
+
+  if (excerptIndex === -1) {
+    // Case-insensitive
+    excerptIndex = fullText.toLowerCase().indexOf(matchExcerpt.toLowerCase());
+    matchKind = "case-insensitive";
+  }
+
+  if (excerptIndex === -1) {
+    // Strip wrapping straight/curly double quotes the AI may have added
+    const stripped = matchExcerpt.replace(/^["""']+|["""']+$/g, '');
+    if (stripped.length > 5) {
+      excerptIndex = fullText.indexOf(stripped);
+      if (excerptIndex !== -1) { matchExcerpt = stripped; matchKind = "quote-stripped"; }
+    }
+  }
+
+  if (excerptIndex === -1) {
+    // Unify curly/smart punctuation on both sides (glyph variants only).
+    // normalizePunctuation is strictly 1:1, so positions in punctFull align
+    // perfectly with positions in fullText and its DOM index.
+    const punctExcerpt = normalizePunctuation(matchExcerpt);
+    const punctFull = normalizePunctuation(fullText);
+    excerptIndex = punctFull.indexOf(punctExcerpt);
+    if (excerptIndex !== -1) {
+      matchExcerpt = punctExcerpt;
+      matchKind = "punctuation-normalized";
+    }
+  }
+
+  if (excerptIndex === -1) {
+    warn(`Highlight: excerpt not found [${verdict}] (${excerpt.length} chars):`, excerpt.slice(0, 120));
+    if (import.meta.env.DEV) {
+      log("Highlight DEV — index text:", fullText.slice(0, 200));
+      log("Highlight DEV — excerpt:", normalizedExcerpt.slice(0, 200));
+    }
+    return;
+  }
+
+  const matchEnd = excerptIndex + matchExcerpt.length;
+
+  // Skip synthetic spaces at the boundaries (they carry no DOM position)
+  let startPos = excerptIndex;
+  while (startPos < matchEnd && !index[startPos]) startPos++;
+  let endPos = matchEnd - 1;
+  while (endPos >= startPos && !index[endPos]) endPos--;
+
+  if (startPos >= endPos) {
+    warn("Highlight: excerpt has no real characters");
+    return;
+  }
+
+  const startRef = index[startPos];
+  const endRef = index[endPos];
+
+  // A single Range may span many text nodes (links, mentions, nested spans).
+  // The CSS Custom Highlight API paints it without touching the DOM.
+  const range = document.createRange();
+  range.setStart(startRef.node, startRef.offset);
+  range.setEnd(endRef.node, endRef.offset + 1);
+
+  const name = HIGHLIGHT_NAMES[verdict] || HIGHLIGHT_NAMES.unverifiable;
+  CSS.highlights.set(name, new Highlight(range));
+
+  log(`Highlight ${matchKind} [${verdict}] "${fullText.slice(startPos, endPos + 1).slice(0, 60)}..."`);
+}
+
+function buildUI(shadowRoot, postText, postTextEl) {
+  const analysisState = { loading: false, data: null, error: null, hasAnalyzed: false, postTextEl: postTextEl };
 
   const btn = document.createElement("button");
   btn.className = "verity-trigger";
@@ -884,17 +1382,25 @@ function buildUI(shadowRoot, postText) {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${token}`
         },
-        body: JSON.stringify({ text: postText, language: analysisLanguage })
+        body: JSON.stringify({ text: postText, language: analysisLanguage, stream: true })
       });
 
       if (!resp.ok) throw resp.status === 401 ? new Error('Unauthorized') : new Error(`API returned ${resp.status}`);
-      const data = await resp.json();
+
+      // SSE streaming with phased progress, falling back to plain JSON for legacy/static responses
+      const contentType = resp.headers.get('Content-Type') || '';
+      let data;
+      if (contentType.includes('text/event-stream')) {
+        data = await consumeSSE(resp, floatingPanel);
+      } else {
+        data = await resp.json();
+      }
 
       // 2. Mark the end time as soon as the payload resolves
       const endTime = performance.now();
       const latencyMs = Math.round(endTime - startTime);
 
-      if (data.error) throw new Error(data.error);
+      if (data && data.error) throw new Error(data.error);
 
       analysisState.data = data;
       analysisState.error = null;
@@ -942,7 +1448,7 @@ function buildUI(shadowRoot, postText) {
   shadowRoot.appendChild(btn);
 }
 
-function renderData(container, data) {
+function renderData(container, data, postTextEl) {
   const getVerdictConfig = (v) => {
     if (v === "true")    return { label: t('accurate'),         tagClass: "rating-accurate",   icon: ICONS.check };
     if (v === "false")       return { label: t('falseLabel'),       tagClass: "rating-false",      icon: ICONS.xCircle };
@@ -992,7 +1498,7 @@ function renderData(container, data) {
 
   if (data.claims && data.claims.length > 0) {
     html += `<div class="section-title">${t('claims')} (${data.claims.length})</div>`;
-    data.claims.forEach(c => {
+    data.claims.forEach((c, ci) => {
       const cfg = getVerdictConfig(c.verdict);
       let sourcesHtml = "";
       if (c.sources && c.sources.length) {
@@ -1008,7 +1514,7 @@ function renderData(container, data) {
         }).join("")}</div>`;
       }
       html += `
-        <div class="verity-card claim-card verdict-${c.verdict}">
+        <div class="verity-card claim-card verdict-${c.verdict}" data-excerpt="${(c.excerpt || '').replace(/"/g, '"')}" data-verdict="${c.verdict}">
           <div class="card-header">
             <div class="card-meta">
               ${cfg.icon}
@@ -1028,6 +1534,24 @@ function renderData(container, data) {
   }
 
   container.innerHTML = html;
+
+  // Set up hover handlers for claim-card highlighting in the post
+  if (postTextEl) {
+    container.querySelectorAll('.claim-card').forEach(card => {
+      const excerpt = card.dataset.excerpt;
+      const verdict = card.dataset.verdict;
+      if (!excerpt) return;
+
+      card.addEventListener('mouseenter', () => {
+        ensureHighlightStyles();
+        highlightInPostElement(postTextEl, excerpt, verdict);
+      });
+
+      card.addEventListener('mouseleave', () => {
+        clearAllHighlights();
+      });
+    });
+  }
 }
 
 function processPost(post) {
@@ -1046,7 +1570,16 @@ function processPost(post) {
 
   const shadow = host.attachShadow({ mode: "open" });
   injectTriggerStyles(shadow);
-  buildUI(shadow, text);
+  
+  // Find the post text element for highlighting
+  const postTextEl = findPostTextElement(post);
+  buildUI(shadow, text, postTextEl);
+
+  // Store reference to the post element on the trigger button for panel positioning
+  const triggerBtn = shadow.querySelector('.verity-trigger');
+  if (triggerBtn) {
+    triggerBtn.verityPostElement = post;
+  }
 
   const wrapper = document.createElement("div");
   wrapper.style.cssText = "display:flex; align-items:center; gap:4px;";
