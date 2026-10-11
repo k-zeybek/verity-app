@@ -1,3 +1,5 @@
+import { consumeSSE } from '../lib/sse.mjs';
+import { escapeHTML, sourceURL, percentage } from '../lib/render-safety.mjs';
 import { getToken, requestMagicLink } from './auth.js';
 
 // ============================================================
@@ -221,7 +223,7 @@ function recordLocalDiagnostics(latencyMs, status, responseData, rawText, uiLang
     const logs = result.verity_diagnostics || [];
     logs.push(logEntry);
 
-    //if (logs.length > 200) logs.shift();
+    if (logs.length > 200) logs.splice(0, logs.length - 200);
 
     chrome.storage.local.set({ verity_diagnostics: logs }, () => {
       log(`Diagnostic saved locally. Latency: ${latencyMs}ms`);
@@ -864,58 +866,6 @@ function updatePhaseUI(panel, phaseKey) {
   });
 }
 
-async function consumeSSE(response, panel) {
-  return new Promise((resolve, reject) => {
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-
-    function handleEvent(rawEvent) {
-      let eventName = "message";
-      const dataLines = [];
-      for (const line of rawEvent.split("\n")) {
-        if (line.startsWith("event:")) eventName = line.slice(6).trim();
-        else if (line.startsWith("data:")) dataLines.push(line.slice(5).trim());
-      }
-      if (!dataLines.length) return;
-      let parsed;
-      try { parsed = JSON.parse(dataLines.join("\n")); } catch { return; }
-
-      if (eventName === "phase" && parsed.key) {
-        updatePhaseUI(panel, parsed.key);
-      } else if (eventName === "result") {
-        resolve(parsed);
-      } else if (eventName === "error") {
-        reject(new Error(parsed.error || "Analysis failed."));
-      }
-    }
-
-    function parseChunk(chunk) {
-      buffer += chunk;
-      let idx;
-      while ((idx = buffer.indexOf("\n\n")) !== -1) {
-        const rawEvent = buffer.slice(0, idx);
-        buffer = buffer.slice(idx + 2);
-        handleEvent(rawEvent);
-      }
-    }
-
-    (async () => {
-      try {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          parseChunk(decoder.decode(value, { stream: true }));
-        }
-        parseChunk(decoder.decode());
-        reject(new Error("Stream ended without a result event."));
-      } catch (err) {
-        reject(err);
-      }
-    })();
-  });
-}
-
 function buildPanelHTML(analysisState, onRetry) {
   return (panel) => {
     const logoUrl = typeof chrome !== 'undefined' && chrome.runtime ? chrome.runtime.getURL('/logo.png') : '';
@@ -951,7 +901,7 @@ function buildPanelHTML(analysisState, onRetry) {
           </div>
         </div>
         <div class="verity-error" style="display:${analysisState.error ? 'flex' : 'none'}; color:var(--verity-danger); text-align:center; padding:24px;">
-          ${analysisState.error || ''}
+          ${escapeHTML(analysisState.error)}
         </div>
         <div class="verity-retry-wrapper" style="display:${analysisState.error ? 'flex' : 'none'}">
           <button class="verity-retry-btn verity-btn">Retry</button>
@@ -1390,7 +1340,8 @@ function buildUI(shadowRoot, postText, postTextEl) {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${token}`
         },
-        body: JSON.stringify({ text: postText, language: analysisLanguage, stream: true })
+        body: JSON.stringify({ text: postText, language: analysisLanguage, stream: true }),
+        signal: AbortSignal.timeout(90000)
       });
 
       if (!resp.ok) throw resp.status === 401 ? new Error('Unauthorized') : new Error(`API returned ${resp.status}`);
@@ -1399,7 +1350,9 @@ function buildUI(shadowRoot, postText, postTextEl) {
       const contentType = resp.headers.get('Content-Type') || '';
       let data;
       if (contentType.includes('text/event-stream')) {
-        data = await consumeSSE(resp, floatingPanel);
+        data = await consumeSSE(resp, phase => {
+          if (activeAnchor === btn) updatePhaseUI(floatingPanel, phase);
+        });
       } else {
         data = await resp.json();
       }
@@ -1435,7 +1388,7 @@ function buildUI(shadowRoot, postText, postTextEl) {
     } finally {
       analysisState.loading = false;
       btn.classList.remove("loading");
-      if (activeAnchor === btn) {
+      if (!showedLoginPanel && activeAnchor === btn && floatingPanel) {
         buildPanelHTML(analysisState, runAnalysis)(floatingPanel);
       }
     }
@@ -1466,7 +1419,7 @@ function renderData(container, data, postTextEl) {
     return { label: t('unknown'),          tagClass: "",                  icon: ICONS.help };
   };
 
-  const score = data.logical_score;
+  const score = percentage(data.logical_score);
   const scoreClass = score >= 80 ? 'score-high' : (score >= 60 ? 'score-mid' : 'score-low');
   const offset = 251.2 - (251.2 * score) / 100;
   const ratingCfg = getVerdictConfig(data.overall_rating);
@@ -1486,7 +1439,7 @@ function renderData(container, data, postTextEl) {
       </div>
     </div>
     <div class="section-title">${t('summary')}</div>
-    <div class="card-body" style="margin-bottom: 24px;">${data.explanation || ''}</div>
+    <div class="card-body" style="margin-bottom: 24px;">${escapeHTML(data.explanation)}</div>
   `;
 
   if (data.fallacies && data.fallacies.length > 0) {
@@ -1495,10 +1448,10 @@ function renderData(container, data, postTextEl) {
       html += `
         <div class="verity-card fallacy-card">
           <div class="card-header">
-            <h4 class="card-title" style="text-transform:capitalize;">${f.name.replace(/_/g, ' ')}</h4>
+            <h4 class="card-title" style="text-transform:capitalize;">${escapeHTML(String(f.name ?? '').replace(/_/g, ' '))}</h4>
             <span class="card-label" style="color:var(--verity-warning)">${t('fallacyLabel')}</span>
           </div>
-          <div class="card-body">${f.explanation}</div>
+          <div class="card-body">${escapeHTML(f.explanation)}</div>
         </div>
       `;
     });
@@ -1507,22 +1460,24 @@ function renderData(container, data, postTextEl) {
   if (data.claims && data.claims.length > 0) {
     html += `<div class="section-title">${t('claims')} (${data.claims.length})</div>`;
     data.claims.forEach((c, ci) => {
-      const cfg = getVerdictConfig(c.verdict);
+      const verdict = ["true", "false", "misleading", "unverifiable"].includes(c.verdict) ? c.verdict : "unverifiable";
+      const cfg = getVerdictConfig(verdict);
       let sourcesHtml = "";
       if (c.sources && c.sources.length) {
         sourcesHtml = `<div class="sources-list">${c.sources.slice(0, 3).map(s => {
-          let domain = "Link";
-          try { domain = new URL(s.url).hostname.replace('www.', ''); } catch (e) {}
+          const url = sourceURL(s.url);
+          if (!url) return '';
+          const domain = new URL(url).hostname.replace('www.', '');
           return `
-            <a href="${s.url}" class="source-tag" target="_blank">
+            <a href="${escapeHTML(url)}" class="source-tag" target="_blank" rel="noopener noreferrer">
               <span class="source-dot ${s.supports ? 'dot-supports' : 'dot-contradicts'}"></span>
-              <span>${domain}</span>
+              <span>${escapeHTML(domain)}</span>
               ${ICONS.external}
             </a>`;
         }).join("")}</div>`;
       }
       html += `
-        <div class="verity-card claim-card verdict-${c.verdict}" data-excerpt="${(c.excerpt || '').replace(/"/g, '"')}" data-verdict="${c.verdict}">
+        <div class="verity-card claim-card verdict-${verdict}" data-excerpt="${escapeHTML(c.excerpt)}" data-verdict="${verdict}">
           <div class="card-header">
             <div class="card-meta">
               ${cfg.icon}
@@ -1530,11 +1485,11 @@ function renderData(container, data, postTextEl) {
             </div>
             <div class="card-meta">
               ${ICONS.shield}
-              <span>${c.confidence}% ${t('conf')}</span>
+              <span>${percentage(c.confidence)}% ${t('conf')}</span>
             </div>
           </div>
-          <div class="card-body">"${c.text}"</div>
-          <div class="card-summary">${c.summary}</div>
+          <div class="card-body">"${escapeHTML(c.text)}"</div>
+          <div class="card-summary">${escapeHTML(c.summary)}</div>
           ${sourcesHtml}
         </div>
       `;

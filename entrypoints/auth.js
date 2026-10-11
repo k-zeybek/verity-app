@@ -10,7 +10,7 @@ export function getToken() {
   return new Promise((resolve) => {
     // 1. Force the native callback API to ensure 100% compatibility across all build tools
     chrome.storage.local.get(['supabase_session'], async (res) => {
-      console.log("[Verity Auth] Storage read complete. Data:", res);
+      if (chrome.runtime.lastError) return resolve(null);
       
       let session = res.supabase_session;
       if (!session || !session.access_token) {

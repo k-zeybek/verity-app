@@ -43,9 +43,13 @@ jobs:
       # WXT places the zipped files inside the '.output' folder
       - name: Create GitHub Release
         env:
+          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_TITLE: ${{ inputs.title }}
+          RELEASE_NOTES: ${{ inputs.description }}
+          RELEASE_TARGET: ${{ github.ref_name }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "${{ inputs.version }}" .output/*.zip \
-            --title "${{ inputs.title }}" \
-            --notes "${{ inputs.description }}" \
-            --target "${{ github.ref_name }}"
+          gh release create "$RELEASE_VERSION" .output/*.zip \
+            --title "$RELEASE_TITLE" \
+            --notes "$RELEASE_NOTES" \
+            --target "$RELEASE_TARGET"
