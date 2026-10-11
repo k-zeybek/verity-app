@@ -8,7 +8,8 @@
     "package": "wxt package",
     "zip": "wxt zip",
     "postinstall": "wxt prepare",
-    "dev": "wxt"
+    "dev": "wxt",
+    "test": "node --test"
   },
   "devDependencies": {
     "wxt": "^0.20.26"
