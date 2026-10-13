@@ -1,0 +1,32 @@
+name: PR review build
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  extension:
+    name: Test and build staging extension
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      # A plain build targets production; PR builds use staging mode.
+      # WXT_EXTENSION_KEY is the PUBLIC extension key, not a signing private key.
+      - name: Build Chrome extension for staging
+        run: npx wxt build --mode staging
+        env:
+          WXT_EXTENSION_KEY: ${{ secrets.WXT_EXTENSION_KEY }}
+      - name: Upload installable PR extension
+        uses: actions/upload-artifact@v4
+        with:
+          name: verity-chrome-staging-pr-${{ github.event.pull_request.number || github.sha }}
+          path: .output/chrome-mv3/
+          if-no-files-found: error
+          retention-days: 14
