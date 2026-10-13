@@ -1,8 +1,8 @@
-const SUPABASE_URL = import.meta.env.DEV
+const SUPABASE_URL = (import.meta.env.DEV || import.meta.env.MODE === 'staging')
   ? "https://cyeqmgrqmntkjaznycic.supabase.co"
   : "https://gpyxoibtcjuabmujrxpq.supabase.co";
 
-const SUPABASE_PUB_KEY = import.meta.env.DEV
+const SUPABASE_PUB_KEY = (import.meta.env.DEV || import.meta.env.MODE === 'staging')
   ? "sb_publishable_GEBFgWIg79j4xIstoilRjA_hsFoaX0z"
   : "sb_publishable_RMvnK4S1r7txxEFAqmEWFg_L4OkhGwx";
 
