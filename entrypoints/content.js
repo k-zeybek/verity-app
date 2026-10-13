@@ -13,11 +13,11 @@ export default defineContentScript({
     runAt: "document_idle",
     main() {
     
-const SUPABASE_URL = import.meta.env.DEV
+const SUPABASE_URL = (import.meta.env.DEV || import.meta.env.MODE === 'staging')
   ? "https://verity-staging.backnd.workers.dev"
   : "https://verity.backnd.workers.dev";
 
-const VERITY_SITE_URL = import.meta.env.DEV
+const VERITY_SITE_URL = (import.meta.env.DEV || import.meta.env.MODE === 'staging')
   ? "https://verity-site-staging.backnd.workers.dev"
   : "https://verity.dpdns.org";
 
