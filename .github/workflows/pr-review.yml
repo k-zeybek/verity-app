@@ -1,32 +1,48 @@
 name: PR review build
 on:
   pull_request:
-    branches: [main]
   workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  group: pr-review-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 jobs:
   extension:
     name: Test and build staging extension
     runs-on: ubuntu-latest
+    env:
+      # PUBLIC values: repository variables work for fork PRs without secrets.
+      # Deliberately no fallback to the production WXT_EXTENSION_KEY.
+      WXT_STAGING_EXTENSION_PUBLIC_KEY: ${{ vars.WXT_STAGING_EXTENSION_PUBLIC_KEY }}
+      WXT_STAGING_EXTENSION_ID: ${{ vars.WXT_STAGING_EXTENSION_ID }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: npm
       - run: npm ci
       - run: npm test
-      # A plain build targets production; PR builds use staging mode.
-      # WXT_EXTENSION_KEY is the PUBLIC extension key, not a signing private key.
       - name: Build Chrome extension for staging
         run: npx wxt build --mode staging
-        env:
-          WXT_EXTENSION_KEY: ${{ secrets.WXT_EXTENSION_KEY }}
+      - name: Verify identity, staging isolation and deployed website
+        run: node scripts/verify-pr-build.mjs
       - name: Upload installable PR extension
+        id: artifact
         uses: actions/upload-artifact@v4
         with:
           name: verity-chrome-staging-pr-${{ github.event.pull_request.number || github.sha }}
           path: .output/chrome-mv3-staging/
           if-no-files-found: error
           retention-days: 14
+      - name: Link review download
+        env:
+          ARTIFACT_URL: ${{ steps.artifact.outputs.artifact-url }}
+        run: |
+          echo "### Install staging extension" >> "$GITHUB_STEP_SUMMARY"
+          echo "[Download PR extension]($ARTIFACT_URL)" >> "$GITHUB_STEP_SUMMARY"
+          echo "Unzip; open chrome://extensions; enable Developer mode; Load unpacked; select the folder containing manifest.json." >> "$GITHUB_STEP_SUMMARY"
+          echo "Expected extension ID: $WXT_STAGING_EXTENSION_ID. See docs/pr-review.md for testing." >> "$GITHUB_STEP_SUMMARY"
