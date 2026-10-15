@@ -5,7 +5,7 @@ const I18N = {
   de: { popupDesc: "Faktenprüfung von LinkedIn-Beiträgen mit KI. Klicken Sie auf die Verity-Schaltfläche neben einem Beitrag, um die Behauptungen zu analysieren.", popupActive: "Aktiv", settingsTitleAttr: "Einstellungen" }
 };
 
-const VERITY_SITE_URL = import.meta.env.DEV
+const VERITY_SITE_URL = (import.meta.env.DEV || import.meta.env.MODE === 'staging')
   ? "https://verity-site-staging.backnd.workers.dev"
   : "https://verity.dpdns.org";
 

@@ -3,15 +3,18 @@ import { resolve } from 'node:path';
 
 const userDataDir = resolve(process.cwd(), '.wxt', 'user-data');
 const isDev = process.env.NODE_ENV === 'development' || process.argv.includes('dev');
+const isStaging = isDev || process.argv.some((arg, i, args) =>
+  (arg === '--mode' && args[i + 1] === 'staging') || arg === '--mode=staging'
+);
 
 export default defineConfig({
   manifest: () => ({
-    name: "Verity - AI Fact Checker",
+    name: isStaging ? "Verity - Staging PR Review" : "Verity - AI Fact Checker",
     description: "AI-powered fact-checking for LinkedIn posts. Detect misinformation, logical fallacies, and verify claims with source citations.",
     permissions: ["storage"],
     host_permissions: [
       "*://*.linkedin.com/*",
-      isDev
+      isStaging
         ? "https://verity-staging.backnd.workers.dev/*"
         : "https://verity.backnd.workers.dev/*"
     ],
@@ -25,9 +28,9 @@ export default defineConfig({
       "48": "icon/48.png",
       "128": "icon/128.png"
     },
-    key: import.meta.env.WXT_EXTENSION_KEY,
+    key: process.env.WXT_EXTENSION_KEY || import.meta.env.WXT_EXTENSION_KEY,
     externally_connectable: {
-      matches: isDev
+      matches: isStaging
         ? ["https://verity-site-staging.backnd.workers.dev/*"]
         : ["https://verity.dpdns.org/*", "https://verity-site.backnd.workers.dev/*"]
     },

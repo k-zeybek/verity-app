@@ -1,0 +1,42 @@
+name: PR review build
+on:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: pr-review-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  extension:
+    name: Test and build staging extension
+    runs-on: ubuntu-latest
+    env:
+      WXT_EXTENSION_KEY: ${{ vars.WXT_EXTENSION_KEY || vars.WXT_STAGING_EXTENSION_PUBLIC_KEY || secrets.WXT_EXTENSION_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - name: Build Chrome extension for staging
+        run: npx wxt build --mode staging
+      - name: Upload installable PR extension
+        id: artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: verity-chrome-staging-pr-${{ github.event.pull_request.number || github.sha }}
+          path: .output/chrome-mv3-staging/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Link review download
+        env:
+          ARTIFACT_URL: ${{ steps.artifact.outputs.artifact-url }}
+        run: |
+          echo "### Install staging extension" >> "$GITHUB_STEP_SUMMARY"
+          echo "[Download PR extension]($ARTIFACT_URL)" >> "$GITHUB_STEP_SUMMARY"
+          echo "Unzip; open chrome://extensions; enable Developer mode; Load unpacked; select the folder containing manifest.json." >> "$GITHUB_STEP_SUMMARY"
