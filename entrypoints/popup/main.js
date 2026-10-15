@@ -6,7 +6,7 @@ const I18N = {
 };
 
 const VERITY_SITE_URL = (import.meta.env.DEV || import.meta.env.MODE === 'staging')
-  ? "https://verity-site-staging.backnd.workers.dev"
+  ? "https://dev-verity-site.backnd.workers.dev"
   : "https://verity.dpdns.org";
 
 // 1. Put all your startup code inside a single init function
