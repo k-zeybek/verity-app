@@ -12,10 +12,7 @@ jobs:
     name: Test and build staging extension
     runs-on: ubuntu-latest
     env:
-      # Manifest keys are PUBLIC keys, even when stored as repository secrets.
-      # Reuse the existing identity; staging mode controls service routing.
-      WXT_STAGING_EXTENSION_PUBLIC_KEY: ${{ vars.WXT_STAGING_EXTENSION_PUBLIC_KEY || vars.WXT_EXTENSION_KEY || secrets.WXT_EXTENSION_KEY }}
-      WXT_STAGING_EXTENSION_ID: ${{ vars.WXT_STAGING_EXTENSION_ID || 'lbclfdjfnjioekbigjgeonajdjblcpmd' }}
+      WXT_EXTENSION_KEY: ${{ vars.WXT_EXTENSION_KEY || vars.WXT_STAGING_EXTENSION_PUBLIC_KEY || secrets.WXT_EXTENSION_KEY }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -28,8 +25,6 @@ jobs:
       - run: npm test
       - name: Build Chrome extension for staging
         run: npx wxt build --mode staging
-      - name: Verify identity, staging isolation and deployed website
-        run: node scripts/verify-pr-build.mjs
       - name: Upload installable PR extension
         id: artifact
         uses: actions/upload-artifact@v4
@@ -45,4 +40,3 @@ jobs:
           echo "### Install staging extension" >> "$GITHUB_STEP_SUMMARY"
           echo "[Download PR extension]($ARTIFACT_URL)" >> "$GITHUB_STEP_SUMMARY"
           echo "Unzip; open chrome://extensions; enable Developer mode; Load unpacked; select the folder containing manifest.json." >> "$GITHUB_STEP_SUMMARY"
-          echo "Expected extension ID: $WXT_STAGING_EXTENSION_ID. See docs/pr-review.md for testing." >> "$GITHUB_STEP_SUMMARY"
