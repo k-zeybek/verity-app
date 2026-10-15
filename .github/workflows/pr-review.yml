@@ -12,10 +12,10 @@ jobs:
     name: Test and build staging extension
     runs-on: ubuntu-latest
     env:
-      # PUBLIC values: repository variables work for fork PRs without secrets.
-      # Deliberately no fallback to the production WXT_EXTENSION_KEY.
-      WXT_STAGING_EXTENSION_PUBLIC_KEY: ${{ vars.WXT_STAGING_EXTENSION_PUBLIC_KEY }}
-      WXT_STAGING_EXTENSION_ID: ${{ vars.WXT_STAGING_EXTENSION_ID }}
+      # Manifest keys are PUBLIC keys, even when stored as repository secrets.
+      # Reuse the existing identity; staging mode controls service routing.
+      WXT_STAGING_EXTENSION_PUBLIC_KEY: ${{ vars.WXT_STAGING_EXTENSION_PUBLIC_KEY || vars.WXT_EXTENSION_KEY || secrets.WXT_EXTENSION_KEY }}
+      WXT_STAGING_EXTENSION_ID: ${{ vars.WXT_STAGING_EXTENSION_ID || 'lbclfdjfnjioekbigjgeonajdjblcpmd' }}
     steps:
       - uses: actions/checkout@v4
         with:

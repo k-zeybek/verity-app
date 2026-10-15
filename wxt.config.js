@@ -32,8 +32,8 @@ export default defineConfig({
     },
     key: isStaging
       ? stagingIdentity(
-          process.env.WXT_STAGING_EXTENSION_PUBLIC_KEY || import.meta.env.WXT_STAGING_EXTENSION_PUBLIC_KEY,
-          process.env.WXT_STAGING_EXTENSION_ID || import.meta.env.WXT_STAGING_EXTENSION_ID
+          process.env.WXT_STAGING_EXTENSION_PUBLIC_KEY || import.meta.env.WXT_STAGING_EXTENSION_PUBLIC_KEY || process.env.WXT_EXTENSION_KEY || import.meta.env.WXT_EXTENSION_KEY,
+          process.env.WXT_STAGING_EXTENSION_ID || import.meta.env.WXT_STAGING_EXTENSION_ID || 'lbclfdjfnjioekbigjgeonajdjblcpmd'
         ).key
       : import.meta.env.WXT_EXTENSION_KEY,
     externally_connectable: {
