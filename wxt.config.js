@@ -15,7 +15,7 @@ export default defineConfig({
     host_permissions: [
       "*://*.linkedin.com/*",
       isStaging
-        ? "https://verity-staging.backnd.workers.dev/*"
+        ? "https://dev-verity.backnd.workers.dev/*"
         : "https://verity.backnd.workers.dev/*"
     ],
     web_accessible_resources: [{
@@ -31,7 +31,7 @@ export default defineConfig({
     key: process.env.WXT_EXTENSION_KEY || import.meta.env.WXT_EXTENSION_KEY,
     externally_connectable: {
       matches: isStaging
-        ? ["https://verity-site-staging.backnd.workers.dev/*"]
+        ? ["https://*.backnd.workers.dev/*"]
         : ["https://verity.dpdns.org/*", "https://verity-site.backnd.workers.dev/*"]
     },
     options_ui: {

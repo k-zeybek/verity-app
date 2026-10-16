@@ -5,8 +5,8 @@ import vm from 'node:vm';
 
 const source = readFileSync(new URL('../entrypoints/popup/main.js', import.meta.url), 'utf8');
 for (const [mode, dev, origin] of [
-  ['staging', false, 'https://verity-site-staging.backnd.workers.dev'],
-  ['development', true, 'https://verity-site-staging.backnd.workers.dev'],
+  ['staging', false, 'https://dev-verity-site.backnd.workers.dev'],
+  ['development', true, 'https://dev-verity-site.backnd.workers.dev'],
   ['production', false, 'https://verity.dpdns.org'],
 ]) {
   test(`popup links use the correct services in ${mode}`, () => {
